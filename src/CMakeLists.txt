@@ -71,6 +71,12 @@ set(VISUALIZATION_SOURCES
     visualization/Visualizer.cpp
 )
 
+set(ANALYSIS_SOURCES
+    analysis/AnalysisResult.cpp
+    analysis/PotholeDetector.cpp
+    analysis/GeometryCalculator.cpp
+)
+
 set(UI_SOURCES
     ui/MainWindow.cpp
     ui/VisualizerWidget.cpp
@@ -94,11 +100,19 @@ target_link_libraries(pcl_viz_visualization
     ${PCL_LIBRARIES}
 )
 
+# 创建分析库
+add_library(pcl_viz_analysis STATIC ${ANALYSIS_SOURCES})
+target_link_libraries(pcl_viz_analysis 
+    pcl_viz_core
+    ${PCL_LIBRARIES}
+)
+
 # 创建UI库
 add_library(pcl_viz_ui STATIC ${UI_SOURCES})
 target_link_libraries(pcl_viz_ui 
     pcl_viz_core
     pcl_viz_visualization
+    pcl_viz_analysis
     ${PCL_LIBRARIES}
     ${VTK_LIBRARIES}
     Qt6::Core
@@ -121,6 +135,7 @@ add_executable(pcl_viewer_gui ${MAIN_SOURCES})
 target_link_libraries(pcl_viewer_gui 
     pcl_viz_core
     pcl_viz_visualization
+    pcl_viz_analysis
     pcl_viz_ui
     ${PCL_LIBRARIES}
     ${VTK_LIBRARIES}
@@ -141,17 +156,28 @@ target_include_directories(pcl_viewer_gui PRIVATE
 # VTK 9.x 模块自动初始化（必须在目标创建后）
 if(VTK_VERSION VERSION_GREATER_EQUAL "9.0.0")
     vtk_module_autoinit(
-        TARGETS pcl_viewer_gui pcl_viz_ui
+        TARGETS pcl_viewer_gui pcl_viz_ui pcl_viz_analysis
         MODULES ${VTK_LIBRARIES}
     )
 endif()
 
+# 创建测试程序
+add_executable(test_analysis_debug build/test_analysis.cpp)
+target_link_libraries(test_analysis_debug 
+    pcl_viz_core
+    pcl_viz_analysis
+    ${PCL_LIBRARIES}
+)
+target_include_directories(test_analysis_debug PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # 设置输出目录
-set_target_properties(pcl_viewer_gui PROPERTIES
+set_target_properties(pcl_viewer_gui test_analysis_debug PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
-set_target_properties(pcl_viz_core pcl_viz_visualization pcl_viz_ui PROPERTIES
+set_target_properties(pcl_viz_core pcl_viz_visualization pcl_viz_analysis pcl_viz_ui PROPERTIES
     ARCHIVE_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/lib
 )
 
@@ -160,7 +186,7 @@ install(TARGETS pcl_viewer_gui
     RUNTIME DESTINATION bin
 )
 
-install(TARGETS pcl_viz_core pcl_viz_visualization pcl_viz_ui
+install(TARGETS pcl_viz_core pcl_viz_visualization pcl_viz_analysis pcl_viz_ui
     ARCHIVE DESTINATION lib
 )
 

@@ -19,10 +19,12 @@
 #include <QtCore/QSettings>
 #include <QtCore/QStandardPaths>
 #include <QtCore/QDir>
+#include <QtCore/QDebug>
 #include <QtGui/QCloseEvent>
 #include <QtGui/QKeySequence>
 
 #include "../core/PointCloudLoader.h"
+#include "../analysis/PotholeDetector.h"
 
 namespace pcl_viz {
 namespace ui {
@@ -36,6 +38,7 @@ MainWindow::MainWindow(QWidget *parent)
     , m_resultPanel(nullptr)
     , m_fileMenu(nullptr)
     , m_viewMenu(nullptr)
+    , m_analysisMenu(nullptr)
     , m_toolsMenu(nullptr)
     , m_helpMenu(nullptr)
     , m_openAction(nullptr)
@@ -44,6 +47,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_resetCameraAction(nullptr)
     , m_toggleResultPanelAction(nullptr)
     , m_aboutAction(nullptr)
+    , m_startAnalysisAction(nullptr)
+    , m_stopAnalysisAction(nullptr)
+    , m_analysisSettingsAction(nullptr)
     , m_lightThemeAction(nullptr)
     , m_darkThemeAction(nullptr)
     , m_highContrastThemeAction(nullptr)
@@ -60,6 +66,9 @@ MainWindow::MainWindow(QWidget *parent)
     , m_statusTimer(nullptr)
     , m_currentPointCloud(nullptr)
     , m_resultPanelVisible(true)
+    , m_potholeDetector(std::make_unique<analysis::PotholeDetector>())
+    , m_analysisParams(analysis::createDefaultAnalysisParams())
+    , m_analysisInProgress(false)
 {
     // 设置窗口属性
     setWindowTitle("PCL 点云可视化与坑洞检测系统");
@@ -68,6 +77,9 @@ MainWindow::MainWindow(QWidget *parent)
 
     // 初始化界面
     initializeUI();
+    
+    // 设置分析器
+    setupAnalysisEngine();
     
     // 连接信号和槽
     connectSignalsAndSlots();
@@ -156,6 +168,9 @@ bool MainWindow::loadPointCloud(const QString& filename) {
         // 更新状态
         m_statusLabel->setText(QString("点云加载成功 - %1 个点").arg(m_currentPointCloud->size()));
         m_progressBar->setVisible(false);
+        
+        // 启用分析功能
+        m_startAnalysisAction->setEnabled(true);
         
         // 发出信号
         emit pointCloudLoaded(m_currentPointCloud);
@@ -302,23 +317,6 @@ void MainWindow::onPointCloudUpdated(std::shared_ptr<core::PointCloud> pointClou
     }
 }
 
-void MainWindow::onAnalysisResultUpdated(double depth, double volume, double area, 
-                                       double width, double length) {
-    // 创建结果对象
-    PotholeResult result;
-    result.depth = depth;
-    result.volume = volume;
-    result.area = area;
-    result.width = width;
-    result.length = length;
-    result.isValid = true;
-    
-    // 更新结果面板
-    m_resultPanel->updateResults(result);
-    
-    // 更新状态
-    m_statusLabel->setText("坑洞分析完成");
-}
 
 void MainWindow::initializeUI() {
     // 创建中央窗口部件
@@ -370,6 +368,27 @@ void MainWindow::createMenuBar() {
     m_toggleResultPanelAction = new QAction("隐藏结果面板(&T)", this);
     m_toggleResultPanelAction->setStatusTip("切换结果面板显示/隐藏");
     m_viewMenu->addAction(m_toggleResultPanelAction);
+    
+    // 分析菜单
+    m_analysisMenu = menuBar()->addMenu("分析(&A)");
+    
+    m_startAnalysisAction = new QAction("开始分析(&S)", this);
+    m_startAnalysisAction->setShortcut(QKeySequence("F5"));
+    m_startAnalysisAction->setStatusTip("开始凹坑检测分析");
+    m_startAnalysisAction->setEnabled(false); // 初始禁用，直到加载点云
+    m_analysisMenu->addAction(m_startAnalysisAction);
+    
+    m_stopAnalysisAction = new QAction("停止分析(&T)", this);
+    m_stopAnalysisAction->setShortcut(QKeySequence("Escape"));
+    m_stopAnalysisAction->setStatusTip("停止当前分析");
+    m_stopAnalysisAction->setEnabled(false);
+    m_analysisMenu->addAction(m_stopAnalysisAction);
+    
+    m_analysisMenu->addSeparator();
+    
+    m_analysisSettingsAction = new QAction("分析设置(&C)...", this);
+    m_analysisSettingsAction->setStatusTip("配置分析参数");
+    m_analysisMenu->addAction(m_analysisSettingsAction);
     
     // 工具菜单
     m_toolsMenu = menuBar()->addMenu("工具(&T)");
@@ -508,6 +527,11 @@ void MainWindow::connectSignalsAndSlots() {
     connect(m_resetCameraAction, &QAction::triggered, this, &MainWindow::onResetCamera);
     connect(m_toggleResultPanelAction, &QAction::triggered, this, &MainWindow::onToggleResultPanel);
     connect(m_aboutAction, &QAction::triggered, this, &MainWindow::onAbout);
+    
+    // 分析相关信号连接
+    connect(m_startAnalysisAction, &QAction::triggered, this, &MainWindow::onStartAnalysis);
+    connect(m_stopAnalysisAction, &QAction::triggered, this, &MainWindow::onStopAnalysis);
+    connect(m_analysisSettingsAction, &QAction::triggered, this, &MainWindow::onAnalysisSettings);
     
     // 主题相关信号连接
     connect(m_lightThemeAction, &QAction::triggered, this, &MainWindow::onLightTheme);
@@ -660,6 +684,169 @@ void MainWindow::onLargeFont() {
 
 void MainWindow::onExtraLargeFont() {
     ThemeManager::instance()->setFontSize(ThemeManager::FontSize::ExtraLarge);
+}
+
+void MainWindow::setupAnalysisEngine() {
+    // 设置分析进度回调
+    m_potholeDetector->setProgressCallback(
+        [this](const std::string& stage, int progress, const std::string& message) {
+            QString qStage = QString::fromStdString(stage);
+            QString qMessage = QString::fromStdString(message);
+            emit analysisProgressUpdated(qStage, progress, qMessage);
+        }
+    );
+    
+    // 设置分析参数
+    m_potholeDetector->setAnalysisParams(m_analysisParams);
+}
+
+void MainWindow::onStartAnalysis() {
+    if (!m_currentPointCloud) {
+        QMessageBox::warning(this, "分析错误", "请先加载点云文件");
+        return;
+    }
+    
+    if (m_analysisInProgress) {
+        QMessageBox::information(this, "分析状态", "分析正在进行中，请等待完成");
+        return;
+    }
+    
+    // ! 调试日志：开始分析
+    qDebug() << "[DEBUG] 开始分析 - 点云大小:" << m_currentPointCloud->size();
+    qDebug() << "[DEBUG] 分析参数 - Z阈值百分位:" << m_analysisParams.zThresholdPercentile
+             << ", 最小凹坑面积:" << m_analysisParams.minPotholeArea
+             << ", 最小凹坑点数:" << m_analysisParams.minPotholePoints;
+    
+    m_analysisInProgress = true;
+    m_startAnalysisAction->setEnabled(false);
+    m_stopAnalysisAction->setEnabled(true);
+    m_progressBar->setVisible(true);
+    m_progressBar->setValue(0);
+    m_statusLabel->setText("开始凹坑检测分析...");
+    
+    // 异步启动分析
+    m_analysisFuture = m_potholeDetector->analyzeAsync(m_currentPointCloud);
+    
+    // 创建定时器检查分析结果
+    QTimer* checkTimer = new QTimer(this);
+    connect(checkTimer, &QTimer::timeout, [this, checkTimer]() {
+        if (m_analysisFuture.valid()) {
+            auto status = m_analysisFuture.wait_for(std::chrono::milliseconds(0));
+            if (status == std::future_status::ready) {
+                try {
+                    auto result = m_analysisFuture.get();
+                    // ! 调试日志：获取分析结果
+                    qDebug() << "[DEBUG] 分析完成 - 成功:" << result.analysisSuccessful
+                             << ", 凹坑数量:" << result.potholes.size()
+                             << ", 有效凹坑:" << result.validPotholeCount;
+                    onAnalysisFinished(result);
+                } catch (const std::exception& e) {
+                    // ! 调试日志：分析异常
+                    qDebug() << "[ERROR] 分析异常:" << e.what();
+                    QMessageBox::critical(this, "分析错误", 
+                        QString("分析过程中发生异常: %1").arg(e.what()));
+                    m_analysisInProgress = false;
+                    m_startAnalysisAction->setEnabled(true);
+                    m_stopAnalysisAction->setEnabled(false);
+                    m_progressBar->setVisible(false);
+                }
+                checkTimer->deleteLater();
+            }
+        }
+    });
+    checkTimer->start(500); // 每500ms检查一次
+}
+
+void MainWindow::onStopAnalysis() {
+    if (!m_analysisInProgress) {
+        return;
+    }
+    
+    m_potholeDetector->cancelAnalysis();
+    m_analysisInProgress = false;
+    m_startAnalysisAction->setEnabled(true);
+    m_stopAnalysisAction->setEnabled(false);
+    m_progressBar->setVisible(false);
+    m_statusLabel->setText("分析已被用户取消");
+}
+
+void MainWindow::onAnalysisSettings() {
+    // TODO: 实现分析参数设置对话框
+    QMessageBox::information(this, "分析设置", "分析参数设置对话框尚未实现\n当前使用默认参数");
+}
+
+void MainWindow::onAnalysisResultUpdated(const analysis::AnalysisResult& result) {
+    m_lastAnalysisResult = result;
+    
+    // 更新结果面板
+    if (m_resultPanel) {
+        // ! 调试日志：开始数据转换
+        qDebug() << "[DEBUG] 开始更新结果面板 - 凹坑数量:" << result.potholes.size();
+        
+        // 创建简化的结果用于结果面板
+        ui::PotholeResult panelResult;
+        if (!result.potholes.empty()) {
+            const auto& firstPothole = result.potholes[0];
+            // * 重要：单位转换 - analysis模块使用米(m)，UI模块使用毫米(mm)
+            panelResult.depth = firstPothole.depth * 1000.0;      // m -> mm
+            panelResult.volume = firstPothole.volume * 1e9;       // m³ -> mm³
+            panelResult.area = firstPothole.area * 1e6;           // m² -> mm²
+            panelResult.width = firstPothole.width * 1000.0;      // m -> mm
+            panelResult.length = firstPothole.length * 1000.0;    // m -> mm
+            panelResult.maxDepth = firstPothole.maxDepth * 1000.0; // m -> mm
+            panelResult.avgDepth = firstPothole.depth * 1000.0;   // m -> mm
+            panelResult.pointCount = firstPothole.pointCount;
+            panelResult.isValid = result.analysisSuccessful;
+            
+            // ! 调试日志：转换后的数值
+            qDebug() << "[DEBUG] 转换后的数值:"
+                     << "深度:" << panelResult.depth << "mm"
+                     << ", 体积:" << panelResult.volume << "mm³"
+                     << ", 面积:" << panelResult.area << "mm²"
+                     << ", 宽度:" << panelResult.width << "mm"
+                     << ", 长度:" << panelResult.length << "mm";
+        } else {
+            // ! 调试日志：没有检测到凹坑
+            qDebug() << "[WARNING] 没有检测到凹坑，设置结果为无效";
+            panelResult.isValid = false;
+        }
+        
+        // ! 调试日志：调用updateResults
+        qDebug() << "[DEBUG] 调用 ResultPanel::updateResults(), isValid:" << panelResult.isValid;
+        m_resultPanel->updateResults(panelResult);
+    }
+    
+    emit analysisCompleted(result);
+}
+
+void MainWindow::onAnalysisProgressUpdated(const QString& stage, int progress, const QString& message) {
+    m_progressBar->setValue(progress);
+    m_statusLabel->setText(QString("[%1] %2").arg(stage).arg(message));
+}
+
+void MainWindow::onAnalysisFinished(const analysis::AnalysisResult& result) {
+    m_analysisInProgress = false;
+    m_startAnalysisAction->setEnabled(true);
+    m_stopAnalysisAction->setEnabled(false);
+    m_progressBar->setVisible(false);
+    
+    if (result.analysisSuccessful) {
+        QString message = QString("分析完成 - 检测到 %1 个凹坑，总体积 %2 m³")
+                         .arg(result.validPotholeCount)
+                         .arg(result.totalPotholeVolume, 0, 'e', 3);
+        m_statusLabel->setText(message);
+        
+        // 更新结果显示
+        onAnalysisResultUpdated(result);
+        
+        // 在3D视图中高亮显示凹坑（如果支持的话）
+        // TODO: 实现凹坑可视化高亮
+        
+    } else {
+        QString errorMsg = result.errorMessage.empty() ? "未知错误" : QString::fromStdString(result.errorMessage);
+        m_statusLabel->setText(QString("分析失败: %1").arg(errorMsg));
+        QMessageBox::warning(this, "分析失败", errorMsg);
+    }
 }
 
 } // namespace ui

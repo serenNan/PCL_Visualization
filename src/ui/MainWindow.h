@@ -16,8 +16,11 @@
 #include <QtWidgets/QLabel>
 #include <QTimer>
 #include <QActionGroup>
+#include <future>
+#include <memory>
 
 #include "../core/PointCloud.h"
+#include "../analysis/AnalysisResult.h"
 
 QT_BEGIN_NAMESPACE
 class QAction;
@@ -26,6 +29,10 @@ class QActionGroup;
 QT_END_NAMESPACE
 
 namespace pcl_viz {
+
+namespace analysis {
+    class PotholeDetector;
+}
 
 namespace ui {
     class VisualizerWidget;
@@ -93,6 +100,21 @@ public slots:
      */
     void onToggleResultPanel();
 
+    /**
+     * @brief 开始凹坑检测分析
+     */
+    void onStartAnalysis();
+
+    /**
+     * @brief 停止当前分析
+     */
+    void onStopAnalysis();
+
+    /**
+     * @brief 打开分析参数设置对话框
+     */
+    void onAnalysisSettings();
+
 
 signals:
     /**
@@ -106,6 +128,20 @@ signals:
      * @param message 状态消息
      */
     void statusUpdate(const QString& message);
+
+    /**
+     * @brief 分析完成信号
+     * @param result 分析结果
+     */
+    void analysisCompleted(const analysis::AnalysisResult& result);
+
+    /**
+     * @brief 分析进度更新信号
+     * @param stage 当前阶段
+     * @param progress 进度百分比
+     * @param message 状态消息
+     */
+    void analysisProgressUpdated(const QString& stage, int progress, const QString& message);
 
 protected:
     /**
@@ -128,14 +164,23 @@ private slots:
 
     /**
      * @brief 处理分析结果更新
-     * @param depth 深度值
-     * @param volume 体积值
-     * @param area 面积值
-     * @param width 宽度值
-     * @param length 长度值
+     * @param result 完整的分析结果
      */
-    void onAnalysisResultUpdated(double depth, double volume, double area, 
-                                double width, double length);
+    void onAnalysisResultUpdated(const analysis::AnalysisResult& result);
+
+    /**
+     * @brief 处理分析进度更新
+     * @param stage 当前阶段
+     * @param progress 进度百分比
+     * @param message 状态消息
+     */
+    void onAnalysisProgressUpdated(const QString& stage, int progress, const QString& message);
+
+    /**
+     * @brief 处理分析完成
+     * @param result 分析结果
+     */
+    void onAnalysisFinished(const analysis::AnalysisResult& result);
 
     /**
      * @brief 主题改变时的处理函数
@@ -194,6 +239,11 @@ private:
     void connectSignalsAndSlots();
 
     /**
+     * @brief 设置分析引擎
+     */
+    void setupAnalysisEngine();
+
+    /**
      * @brief 应用主题样式
      */
     void applyTheme();
@@ -225,6 +275,7 @@ private:
     // 菜单和动作
     QMenu* m_fileMenu;                           ///< 文件菜单
     QMenu* m_viewMenu;                           ///< 视图菜单
+    QMenu* m_analysisMenu;                       ///< 分析菜单
     QMenu* m_toolsMenu;                          ///< 工具菜单
     QMenu* m_helpMenu;                           ///< 帮助菜单
 
@@ -234,6 +285,11 @@ private:
     QAction* m_resetCameraAction;                ///< 重置相机动作
     QAction* m_toggleResultPanelAction;          ///< 切换结果面板动作
     QAction* m_aboutAction;                      ///< 关于动作
+
+    // 分析相关动作
+    QAction* m_startAnalysisAction;              ///< 开始分析动作
+    QAction* m_stopAnalysisAction;               ///< 停止分析动作
+    QAction* m_analysisSettingsAction;           ///< 分析设置动作
 
     // 主题相关动作
     QAction* m_lightThemeAction;                 ///< 浅色主题动作
@@ -266,6 +322,13 @@ private:
 
     // 窗口状态
     bool m_resultPanelVisible;                   ///< 结果面板可见性
+
+    // 分析相关成员
+    std::unique_ptr<analysis::PotholeDetector> m_potholeDetector;  ///< 凹坑检测器
+    analysis::AnalysisParams m_analysisParams;  ///< 分析参数
+    analysis::AnalysisResult m_lastAnalysisResult; ///< 上次分析结果
+    bool m_analysisInProgress;                   ///< 分析是否进行中
+    std::future<analysis::AnalysisResult> m_analysisFuture; ///< 异步分析结果
 };
 
 } // namespace ui

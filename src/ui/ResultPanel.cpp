@@ -7,6 +7,7 @@
 #include <QtCore/QDateTime>
 #include <QtCore/QStandardPaths>
 #include <QtCore/QDir>
+#include <QtCore/QDebug>
 #include <QtCore/QTextStream>
 #include <QtCore/QJsonDocument>
 #include <QtCore/QJsonObject>
@@ -66,6 +67,19 @@ ResultPanel::ResultPanel(QWidget *parent)
 ResultPanel::~ResultPanel() = default;
 
 void ResultPanel::updateResults(const PotholeResult& result) {
+    // ! 调试日志：接收到的结果数据
+    qDebug() << "[DEBUG] ResultPanel::updateResults() 被调用";
+    qDebug() << "[DEBUG] 接收到的数据:"
+             << "深度:" << result.depth
+             << ", 体积:" << result.volume
+             << ", 面积:" << result.area
+             << ", 宽度:" << result.width
+             << ", 长度:" << result.length
+             << ", 最大深度:" << result.maxDepth
+             << ", 平均深度:" << result.avgDepth
+             << ", 点数:" << result.pointCount
+             << ", 有效性:" << result.isValid;
+    
     m_currentResult = result;
     
     // 更新所有结果显示
@@ -77,11 +91,17 @@ void ResultPanel::updateResults(const PotholeResult& result) {
     updateResultDisplay(m_maxDepthEdit, result.maxDepth, "mm");
     updateResultDisplay(m_avgDepthEdit, result.avgDepth, "mm");
     
+    // ! 调试日志：界面更新完成
+    qDebug() << "[DEBUG] 界面控件更新完成";
+    
     // 更新有效性
     setResultsValid(result.isValid);
     
     // 更新时间戳
     updateTimeDisplay();
+    
+    // ! 调试日志：ResultPanel更新完成
+    qDebug() << "[DEBUG] ResultPanel::updateResults() 完成";
 }
 
 void ResultPanel::clearResults() {
@@ -484,15 +504,23 @@ void ResultPanel::createResultItem(QGridLayout* layout, int row, const QString& 
 
 void ResultPanel::updateResultDisplay(QLineEdit* edit, double value, const QString& unit, int precision) {
     if (!edit) {
+        // ! 调试日志：空指针检查失败
+        qDebug() << "[ERROR] updateResultDisplay: 编辑控件指针为空";
         return;
     }
+    
+    // ! 调试日志：更新单个控件
+    qDebug() << "[DEBUG] 更新控件 - 值:" << value << ", 单位:" << unit;
     
     if (std::isnan(value) || std::isinf(value) || value == 0.0) {
         edit->setText("--");
         edit->setStyleSheet("QLineEdit { color: #888888; }");
+        qDebug() << "[DEBUG] 设置为无效值显示: --";
     } else {
-        edit->setText(QString::number(value, 'f', precision));
+        QString displayText = QString::number(value, 'f', precision);
+        edit->setText(displayText);
         edit->setStyleSheet("QLineEdit { color: #000000; font-weight: bold; }");
+        qDebug() << "[DEBUG] 设置有效值显示:" << displayText;
     }
 }
 
