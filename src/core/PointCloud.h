@@ -118,6 +118,18 @@ public:
      * @return 是否有法向量
      */
     bool hasNormals() const { return statistics_.hasNormals; }
+    
+    /**
+     * @brief 获取源文件名
+     * @return 源文件名
+     */
+    std::string getFilename() const { return statistics_.sourceFile; }
+    
+    /**
+     * @brief 获取点云边界
+     * @return 边界框对象
+     */
+    BoundingBox getBounds() const { return boundingBox_; }
 
     /**
      * @brief 更新统计信息和边界框

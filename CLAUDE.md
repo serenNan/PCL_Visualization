@@ -1,115 +1,133 @@
 # CLAUDE.md
 
-这个文件为在此代码库中工作的 Claude Code (claude.ai/code) 提供指导。
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## 项目概述
 
-这是一个点云数据可视化和分析项目，专注于对路面坑洞（凹坑）进行检测和测量。项目需要开发一个软件界面来显示点云数据，并能够分析和计算凹坑的深度、尺寸、体积和面积信息。
+这是一个基于 PCL (Point Cloud Library) 的路面坑洞检测和分析系统。项目采用模块化架构，分为 C++ 可视化引擎和 Python 分析模块。当前已完成基础的点云加载和可视化功能，需要继续开发 GUI 界面和凹坑检测算法。
 
-## 项目要求
+## 核心功能需求
 
-根据 `task.md` 的描述，需要开发一个软件，软件界面上需要显示：
-- 输入的点云数据
-- 凹坑的深度
-- 凹坑的尺寸 
-- 凹坑的体积和面积
-- 时间信息
+根据 `task.md`，软件需要实现：
+- 3D 点云可视化显示
+- 凹坑检测（深度、尺寸计算）
+- 几何测量（体积、面积计算）
+- 实时时间信息显示
+- GUI 界面集成（计划使用 Qt）
 
-## 数据文件格式
+## 常用命令
 
-### 点云数据文件 (.asc)
-- `H103v2.asc` 包含了 740 个数据点（除去前两行注释）
-- 每行包含 6 个数值：X Y Z 坐标和对应的法向量分量
-- 文件格式为 ASCII 文本，来自 Geomagic Studio
-- 数据结构：`X Y Z Normal_X Normal_Y Normal_Z`
+### 构建和运行
+```bash
+# 创建构建目录并编译
+cd src
+mkdir -p build && cd build
+cmake .. -DCMAKE_BUILD_TYPE=Release
+make -j$(nproc)
 
-### 二进制数据文件 (.wrp)
-- `H103v2.wrp` 是二进制数据文件，可能包含处理后的点云数据或包装数据
+# 运行可视化器
+./pcl_viewer ../../data/H103v2.asc
 
-## 技术架构建议
-
-### 开发语言选择
-基于项目需求建议使用以下技术栈之一：
-1. **C++ + PCL (Point Cloud Library)** - 专业点云处理
-2. **Python + Open3D/PCL** - 快速原型开发
-3. **C++ + Qt** - 桌面应用界面开发
-
-### 核心功能模块
-1. **点云数据加载和解析**
-   - ASCII 点云文件读取
-   - 二进制数据文件处理
-   
-2. **点云可视化**
-   - 3D 点云渲染
-   - 交互式查看（旋转、缩放、平移）
-   
-3. **凹坑检测算法**
-   - 表面重建
-   - 凹陷区域识别
-   - 深度计算
-   
-4. **几何测量**
-   - 体积计算
-   - 面积计算
-   - 尺寸测量（长度、宽度）
-   
-5. **用户界面**
-   - 点云显示窗口
-   - 测量结果展示
-   - 时间信息显示
-
-### 项目结构建议
-```
-PCL_Visualization/
-├── src/
-│   ├── main.cpp               # 主程序入口
-│   ├── pointcloud/
-│   │   ├── loader.cpp         # 点云数据加载
-│   │   └── processor.cpp      # 点云处理算法
-│   ├── analysis/
-│   │   ├── pothole_detector.cpp  # 凹坑检测
-│   │   └── measurement.cpp       # 几何测量
-│   ├── ui/
-│   │   ├── mainwindow.cpp     # 主窗口
-│   │   └── viewer.cpp         # 3D 查看器
-│   └── utils/
-│       └── file_utils.cpp     # 文件处理工具
-├── include/                   # 头文件
-├── data/                      # 示例数据文件
-│   ├── H103v2.asc
-│   └── H103v2.wrp
-├── build/                     # 构建目录（被忽略）
-├── CMakeLists.txt            # CMake 构建配置
-└── README.md                 # 项目说明文档
+# Python 分析模块
+cd python
+python analyze_pointcloud.py
 ```
 
-## CMake 配置要求
+### WSL 环境特殊处理
+```bash
+# 如果遇到 VTK 库问题
+vtk_env  # 加载 VTK 环境
 
-CMakeLists.txt 必须包含：
-```cmake
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+# 如果遇到显示问题
+export DISPLAY=:0
 ```
 
-这确保了 IDE 和开发工具能够正确解析项目结构。
+## 当前架构
 
-## 开发环境设置
+### 技术栈
+- **C++17** + **PCL 1.8+** - 核心点云处理引擎
+- **VTK** - 3D 渲染后端（通过 PCL）
+- **Python3** + **NumPy/Matplotlib/SciPy** - 数据分析和原型验证
+- **CMake 3.16+** - 构建系统
+- **Qt5/6**（待集成）- GUI 框架
 
-- 使用 fish 作为默认终端
-- Python 虚拟环境使用 conda 管理
-- 构建目录 `build/` 已在 `.gitignore` 中被忽略
-- VS Code 配置目录 `.vscode/` 已被忽略
+### 已实现模块
 
-## 数据特征
+#### core/ - 核心数据处理
+- `PointCloud` - 点云数据封装类（RAII，智能指针管理）
+- `PointCloudLoader` - ASC/WRP 文件加载器
+- 边界框计算和统计信息管理
 
-当前数据集特点：
-- 点云数据范围大致为 X: -34.7 到 -34.4, Y: 5.8 到 6.1, Z: 约 12.4
-- 包含表面法向量信息，有助于表面重建和特征检测
-- 数据密度较高，适合进行精确的几何分析
+#### visualization/ - 可视化
+- `Visualizer` - PCL 可视化器封装
+- 交互式 3D 查看（鼠标控制，键盘快捷键）
+- 坐标轴和网格显示
 
-## 开发优先级
+#### python/ - 分析原型
+- `analyze_pointcloud.py` - 凹坑检测算法原型
+- 使用 ConvexHull 进行体积计算
+- Z 轴阈值法检测凹陷区域
 
-1. **首先**：实现点云数据加载和基本可视化
-2. **其次**：开发用户界面框架
-3. **然后**：实现凹坑检测算法
-4. **最后**：添加测量功能和结果显示
-- 不需要帮我编译
+### 待实现模块（按优先级）
+
+1. **analysis/** - 凹坑检测算法（高优先级）
+   - `PotholeDetector` - 将 Python 原型移植到 C++
+   - `GeometryCalculator` - 体积/面积/深度计算
+   - RANSAC 平面拟合算法
+
+2. **ui/** - Qt GUI 界面（中优先级）
+   - `MainWindow` - 主窗口框架
+   - `ResultPanel` - 测量结果显示面板
+   - `ControlPanel` - 参数调节界面
+   - QVTKWidget 集成用于 3D 显示
+
+3. **io/** - 扩展文件格式支持（低优先级）
+   - PCD, PLY, LAS 格式支持
+   - 结果导出功能（CSV, JSON）
+
+## 代码架构说明
+
+### 设计模式
+- **RAII** - 所有资源通过智能指针管理
+- **模块化** - 功能分离到独立的静态库
+- **命名空间** - `pcl_viz::core`, `pcl_viz::visualization`
+
+### CMake 结构
+- 主 CMakeLists.txt 在 `src/` 目录
+- 静态库：`pcl_viz_core`, `pcl_viz_visualization`
+- 可执行文件：`pcl_viewer`
+- 已启用 `CMAKE_EXPORT_COMPILE_COMMANDS`
+
+## 数据文件说明
+
+### H103v2.asc
+- 740 个点，格式：`X Y Z Normal_X Normal_Y Normal_Z`
+- 坐标范围：X[-34.8, -33.6], Y[5.5, 6.6], Z[12.2, 12.5]
+- 表示路面扫描数据，Z 轴变化约 0.33m（可能的凹坑深度）
+
+### H103v2.wrp
+- 二进制格式，88KB，可能包含网格或处理后数据
+- 当前未实现解析（需要格式规范）
+
+## 下一步开发计划
+
+1. **将 Python 凹坑检测算法移植到 C++**
+   - 实现 Z 轴阈值检测
+   - 添加 RANSAC 平面拟合
+   - 计算体积和面积
+
+2. **集成 Qt GUI**
+   - 添加 Qt5 到 CMakeLists.txt
+   - 创建 MainWindow 框架
+   - 集成 QVTKWidget
+
+3. **完善测量功能**
+   - 实时显示检测结果
+   - 添加参数调节滑块
+   - 导出测量报告
+
+## 注意事项
+
+- WSL 环境需要先运行 `vtk_env` 加载图形环境
+- 显示问题使用 `export DISPLAY=:0` 解决
+- 不要手动编译，用户会自行处理构建过程
