@@ -351,19 +351,24 @@ void VisualizerWidget::mouseMoveEvent(QMouseEvent *event) {
         // 根据按键类型执行不同操作
         switch (m_activeMouseButton) {
             case Qt::LeftButton:
-                // 左键：旋转
-                m_camera->rotate(static_cast<float>(deltaPos.x()), 
-                               static_cast<float>(deltaPos.y()), 
-                               0.01f);
+                // 左键：旋转（使用改进的自适应算法）
+                m_camera->rotate(
+                    static_cast<float>(deltaPos.x()), 
+                    static_cast<float>(deltaPos.y()),
+                    width(),    // 窗口宽度
+                    height(),   // 窗口高度
+                    2.0f        // 基础灵敏度（将根据距离和窗口大小自动调整）
+                );
                 updateRender();
                 emit cameraChanged();
                 break;
                 
             case Qt::RightButton:
                 // 右键：平移
+                // 稍微降低平移灵敏度，从0.002f降至0.001f
                 m_camera->pan(static_cast<float>(-deltaPos.x()), 
                             static_cast<float>(deltaPos.y()), 
-                            0.002f);
+                            0.001f);
                 updateRender();
                 emit cameraChanged();
                 break;
@@ -371,7 +376,8 @@ void VisualizerWidget::mouseMoveEvent(QMouseEvent *event) {
             case Qt::MiddleButton:
                 {
                     // 中键：缩放（通过Y方向移动）
-                    float zoomFactor = 1.0f + static_cast<float>(deltaPos.y()) * 0.01f;
+                    // 降低缩放灵敏度，从0.01f降至0.005f
+                    float zoomFactor = 1.0f + static_cast<float>(deltaPos.y()) * 0.005f;
                     m_camera->zoom(zoomFactor);
                     updateRender();
                     emit cameraChanged();
@@ -413,10 +419,12 @@ void VisualizerWidget::wheelEvent(QWheelEvent *event) {
             
             if (numSteps.y() > 0) {
                 // 向前滚动：放大（缩小距离）
-                zoomFactor = 0.9f;
+                // 从0.9f调整为0.95f，减小每次滚动的缩放幅度
+                zoomFactor = 0.95f;
             } else {
                 // 向后滚动：缩小（增大距离）
-                zoomFactor = 1.1f;
+                // 从1.1f调整为1.05f，减小每次滚动的缩放幅度
+                zoomFactor = 1.05f;
             }
             
             // 应用缩放

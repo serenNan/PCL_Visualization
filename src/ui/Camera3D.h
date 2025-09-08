@@ -47,12 +47,22 @@ public:
     void setUp(float upX, float upY, float upZ);
 
     /**
-     * @brief 鼠标旋转（轨迹球算法）
+     * @brief 鼠标旋转（轨迹球算法，改进版）
+     * @param deltaX X方向鼠标移动量（像素）
+     * @param deltaY Y方向鼠标移动量（像素）
+     * @param windowWidth 窗口宽度（像素）
+     * @param windowHeight 窗口高度（像素）
+     * @param sensitivity 基础敏感度（可选）
+     */
+    void rotate(float deltaX, float deltaY, int windowWidth = 800, int windowHeight = 600, float sensitivity = 0.01f);
+
+    /**
+     * @brief 旧版本兼容接口（将被废弃）
      * @param deltaX X方向鼠标移动量（像素）
      * @param deltaY Y方向鼠标移动量（像素）
      * @param sensitivity 敏感度
      */
-    void rotate(float deltaX, float deltaY, float sensitivity = 0.01f);
+    void rotateLegacy(float deltaX, float deltaY, float sensitivity = 0.01f);
 
     /**
      * @brief 缩放相机距离
@@ -165,6 +175,34 @@ private:
     
     float m_minDistance;    ///< 最小缩放距离
     float m_maxDistance;    ///< 最大缩放距离
+    
+    // 角度限制和旋转状态
+    float m_verticalAngle;     ///< 当前垂直角度（弧度）
+    float m_horizontalAngle;   ///< 当前水平角度（弧度）
+    float m_maxVerticalAngle;  ///< 最大垂直角度（弧度，默认85度）
+    float m_minVerticalAngle;  ///< 最小垂直角度（弧度，默认-85度）
+
+private:
+    /**
+     * @brief 计算自适应旋转灵敏度
+     * @param windowWidth 窗口宽度
+     * @param windowHeight 窗口高度
+     * @param baseSensitivity 基础灵敏度
+     * @return 调整后的灵敏度
+     */
+    float calculateAdaptiveSensitivity(int windowWidth, int windowHeight, float baseSensitivity) const;
+    
+    /**
+     * @brief 限制垂直旋转角度，防止翻转
+     * @param angle 待限制的角度
+     * @return 限制后的角度
+     */
+    float clampVerticalAngle(float angle) const;
+    
+    /**
+     * @brief 更新相机角度追踪
+     */
+    void updateAngleTracking();
 };
 
 } // namespace ui

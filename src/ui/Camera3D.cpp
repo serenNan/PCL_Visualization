@@ -20,6 +20,10 @@ Camera3D::Camera3D()
     , m_defaultUp({0.0f, 1.0f, 0.0f})
     , m_minDistance(0.1f)
     , m_maxDistance(100.0f)
+    , m_verticalAngle(0.0f)
+    , m_horizontalAngle(0.0f)
+    , m_maxVerticalAngle(85.0f * M_PI / 180.0f)   // 85度转弧度
+    , m_minVerticalAngle(-85.0f * M_PI / 180.0f)  // -85度转弧度
 {
 }
 
@@ -36,7 +40,7 @@ void Camera3D::setUp(float upX, float upY, float upZ) {
     normalize(m_up);
 }
 
-void Camera3D::rotate(float deltaX, float deltaY, float sensitivity) {
+void Camera3D::rotateLegacy(float deltaX, float deltaY, float sensitivity) {
     // 轨迹球旋转算法
     
     // 计算相机到目标的向量
@@ -70,6 +74,58 @@ void Camera3D::rotate(float deltaX, float deltaY, float sensitivity) {
     m_eye[0] = m_target[0] + direction[0] * distance;
     m_eye[1] = m_target[1] + direction[1] * distance;
     m_eye[2] = m_target[2] + direction[2] * distance;
+}
+
+void Camera3D::rotate(float deltaX, float deltaY, int windowWidth, int windowHeight, float sensitivity) {
+    // 改进的轨迹球旋转算法，支持自适应灵敏度和角度限制
+    
+    // 计算相机到目标的向量和距离
+    std::array<float, 3> direction = {
+        m_eye[0] - m_target[0],
+        m_eye[1] - m_target[1], 
+        m_eye[2] - m_target[2]
+    };
+    float distance = length(direction);
+    
+    // 自适应灵敏度计算
+    float adaptiveSensitivity = calculateAdaptiveSensitivity(windowWidth, windowHeight, sensitivity);
+    
+    // 标准化鼠标移动量到 [-1, 1] 范围
+    float normalizedDeltaX = (2.0f * deltaX) / static_cast<float>(windowWidth);
+    float normalizedDeltaY = (2.0f * deltaY) / static_cast<float>(windowHeight);
+    
+    // 计算相机坐标系
+    std::array<float, 3> forward = {-direction[0], -direction[1], -direction[2]};
+    normalize(forward);
+    
+    std::array<float, 3> right = cross(forward, m_up);
+    normalize(right);
+    
+    std::array<float, 3> realUp = cross(right, forward);
+    normalize(realUp);
+    
+    // 计算旋转角度
+    float horizontalAngle = -normalizedDeltaX * adaptiveSensitivity;
+    float verticalAngle = -normalizedDeltaY * adaptiveSensitivity;
+    
+    // 限制垂直旋转角度，防止翻转
+    float currentVerticalAngle = m_verticalAngle + verticalAngle;
+    currentVerticalAngle = clampVerticalAngle(currentVerticalAngle);
+    verticalAngle = currentVerticalAngle - m_verticalAngle;
+    
+    // 应用旋转
+    direction = rotateAroundAxis(direction, realUp, horizontalAngle);
+    direction = rotateAroundAxis(direction, right, verticalAngle);
+    
+    // 更新相机位置，保持距离不变
+    normalize(direction);
+    m_eye[0] = m_target[0] + direction[0] * distance;
+    m_eye[1] = m_target[1] + direction[1] * distance;
+    m_eye[2] = m_target[2] + direction[2] * distance;
+    
+    // 更新角度追踪
+    m_horizontalAngle += horizontalAngle;
+    m_verticalAngle = currentVerticalAngle;
 }
 
 void Camera3D::zoom(float scaleFactor) {
@@ -132,6 +188,9 @@ void Camera3D::reset() {
     m_eye = m_defaultEye;
     m_target = m_defaultTarget;
     m_up = m_defaultUp;
+    
+    // 更新角度追踪
+    updateAngleTracking();
 }
 
 void Camera3D::autoFit(float minX, float maxX, float minY, float maxY, float minZ, float maxZ) {
@@ -168,6 +227,9 @@ void Camera3D::autoFit(float minX, float maxX, float minY, float maxY, float min
     m_defaultEye = m_eye;
     m_defaultTarget = m_target;
     m_defaultUp = m_up;
+    
+    // 更新角度追踪
+    updateAngleTracking();
 }
 
 void Camera3D::applyTransform() {
@@ -247,6 +309,48 @@ std::array<float, 3> Camera3D::rotateAroundAxis(const std::array<float, 3>& vec,
         vec[1] * cosAngle + crossProduct[1] * sinAngle + k[1] * dotProduct * (1 - cosAngle),
         vec[2] * cosAngle + crossProduct[2] * sinAngle + k[2] * dotProduct * (1 - cosAngle)
     };
+}
+
+float Camera3D::calculateAdaptiveSensitivity(int windowWidth, int windowHeight, float baseSensitivity) const {
+    // 基于相机距离、窗口大小和点云尺度的自适应灵敏度算法
+    
+    float distance = getDistance();
+    float windowSize = std::sqrt(static_cast<float>(windowWidth * windowHeight));
+    
+    // 基础公式：灵敏度与距离成正比，与窗口大小成反比
+    // 这确保了远距离时不会过于敏感，近距离时不会过于迟钝
+    float adaptiveScale = distance / (windowSize * 0.01f);
+    
+    // 限制灵敏度范围，避免极端值
+    adaptiveScale = std::max(0.1f, std::min(10.0f, adaptiveScale));
+    
+    return baseSensitivity * adaptiveScale;
+}
+
+float Camera3D::clampVerticalAngle(float angle) const {
+    return std::max(m_minVerticalAngle, std::min(m_maxVerticalAngle, angle));
+}
+
+void Camera3D::updateAngleTracking() {
+    // 根据当前相机位置更新角度追踪
+    // 这个函数在相机位置发生非旋转变化时调用（如缩放、平移等）
+    
+    std::array<float, 3> direction = {
+        m_eye[0] - m_target[0],
+        m_eye[1] - m_target[1],
+        m_eye[2] - m_target[2]
+    };
+    normalize(direction);
+    
+    // 计算水平角度（绕Y轴）
+    m_horizontalAngle = std::atan2(direction[0], direction[2]);
+    
+    // 计算垂直角度
+    float horizontalDistance = std::sqrt(direction[0] * direction[0] + direction[2] * direction[2]);
+    m_verticalAngle = std::atan2(-direction[1], horizontalDistance);
+    
+    // 确保垂直角度在有效范围内
+    m_verticalAngle = clampVerticalAngle(m_verticalAngle);
 }
 
 } // namespace ui
