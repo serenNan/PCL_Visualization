@@ -244,6 +244,11 @@ private:
     void setupAnalysisEngine();
 
     /**
+     * @brief 自动开始深度分析
+     */
+    void startAutomaticAnalysis();
+
+    /**
      * @brief 应用主题样式
      */
     void applyTheme();
@@ -275,8 +280,6 @@ private:
     // 菜单和动作
     QMenu* m_fileMenu;                           ///< 文件菜单
     QMenu* m_viewMenu;                           ///< 视图菜单
-    QMenu* m_analysisMenu;                       ///< 分析菜单
-    QMenu* m_toolsMenu;                          ///< 工具菜单
     QMenu* m_helpMenu;                           ///< 帮助菜单
 
     QAction* m_openAction;                       ///< 打开文件动作

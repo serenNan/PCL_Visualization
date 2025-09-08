@@ -29,6 +29,7 @@ struct PotholeInfo {
     PointT center;               ///< 凹坑中心点
     PointT minPoint;             ///< 边界框最小点
     PointT maxPoint;             ///< 边界框最大点
+    PointT deepestPoint;         ///< 最深点位置 (新增)
     
     // 统计信息
     size_t pointCount = 0;       ///< 凹坑点数
@@ -46,6 +47,8 @@ struct PotholeInfo {
         minPoint.normal_x = minPoint.normal_y = 0.0f; minPoint.normal_z = 1.0f;
         maxPoint.x = maxPoint.y = maxPoint.z = std::numeric_limits<float>::lowest();
         maxPoint.normal_x = maxPoint.normal_y = 0.0f; maxPoint.normal_z = 1.0f;
+        deepestPoint.x = deepestPoint.y = deepestPoint.z = 0.0f;
+        deepestPoint.normal_x = deepestPoint.normal_y = 0.0f; deepestPoint.normal_z = 1.0f;
     }
     
     /**
@@ -88,6 +91,11 @@ struct AnalysisParams {
     // 质量控制参数
     double minConfidenceThreshold = 0.3;  ///< 最小置信度阈值
     bool enableQualityFiltering = true;   ///< 启用质量过滤
+    
+    // 中央区域过滤参数 (新增)
+    bool enableCentralRegionFilter = false;  ///< 启用中央区域过滤
+    double centralRegionRatio = 0.6;          ///< 中央区域占比 [0.1, 1.0]
+    bool detectSingleMaxPothole = false;     ///< 只检测最大单个凹坑
 };
 
 /**
@@ -152,20 +160,18 @@ struct AnalysisResult {
         
         if (potholes.empty()) return;
         
-        double totalDepth = 0.0;
+        // * 不再计算平均深度，只处理最大深度
         for (const auto& pothole : potholes) {
             if (pothole.confidence >= params.minConfidenceThreshold) {
                 validPotholeCount++;
                 totalPotholeArea += pothole.area;
                 totalPotholeVolume += pothole.volume;
-                totalDepth += pothole.depth;
                 maxPotholeDepth = std::max(maxPotholeDepth, pothole.maxDepth);
             }
         }
         
-        if (validPotholeCount > 0) {
-            avgPotholeDepth = totalDepth / validPotholeCount;
-        }
+        // 平均深度设为0，因为不再使用
+        avgPotholeDepth = 0.0;
     }
     
     /**

@@ -50,6 +50,31 @@ AnalysisResult PotholeDetector::analyze(std::shared_ptr<core::PointCloud> pointC
             return result;
         }
         
+        // 1.5 中央区域过滤（新增）
+        if (params_.enableCentralRegionFilter) {
+            reportProgress("预处理", 20, "提取中央区域点云");
+            auto centralIndices = extractCentralRegion(processedCloud, params_.centralRegionRatio);
+            
+            if (centralIndices->indices.empty()) {
+                reportProgress("完成", 100, "中央区域无有效点云数据");
+                result.analysisSuccessful = true;
+                result.overallConfidence = 1.0;
+                return result;
+            }
+            
+            // 从中央区域提取点云
+            pcl::ExtractIndices<PointT> extract;
+            auto centralCloud = boost::make_shared<PCLPointCloud>();
+            extract.setInputCloud(processedCloud);
+            extract.setIndices(centralIndices);
+            extract.setNegative(false);
+            extract.filter(*centralCloud);
+            
+            processedCloud = centralCloud;
+            reportProgress("预处理", 25, 
+                "中央区域提取完成，包含 " + std::to_string(processedCloud->size()) + " 个点");
+        }
+        
         // 2. 检测凹坑候选点
         pcl::PointIndices::Ptr candidateIndices;
         if (params_.useRANSACFitting) {
@@ -78,6 +103,32 @@ AnalysisResult PotholeDetector::analyze(std::shared_ptr<core::PointCloud> pointC
         if (checkCancellation()) {
             result.errorMessage = "分析被用户取消";
             return result;
+        }
+        
+        // 3.5 单个最大凹坑选择（新增）
+        if (params_.detectSingleMaxPothole && !clusters.empty()) {
+            reportProgress("筛选", 70, "选择最大的单个凹坑");
+            
+            // 计算表面高度（75%分位数）
+            std::vector<float> allZ;
+            allZ.reserve(processedCloud->size());
+            for (const auto& point : processedCloud->points) {
+                allZ.push_back(point.z);
+            }
+            std::sort(allZ.begin(), allZ.end());
+            double surfaceZ = allZ[static_cast<size_t>(allZ.size() * 0.75)];
+            
+            clusters = selectLargestPothole(processedCloud, clusters, surfaceZ);
+            
+            if (clusters.empty()) {
+                reportProgress("完成", 100, "未找到符合条件的最大凹坑");
+                result.analysisSuccessful = true;
+                result.overallConfidence = 1.0;
+                return result;
+            } else {
+                reportProgress("筛选", 75, "已选择最大凹坑，包含 " + 
+                    std::to_string(clusters[0].indices.size()) + " 个点");
+            }
         }
         
         // 4. 生成凹坑信息
@@ -148,6 +199,43 @@ PCLPointCloud::Ptr PotholeDetector::preprocessPointCloud(PCLPointCloud::Ptr clou
     }
     
     return processedCloud;
+}
+
+pcl::PointIndices::Ptr PotholeDetector::extractCentralRegion(PCLPointCloud::Ptr cloud, double regionRatio) {
+    auto centralIndices = boost::make_shared<pcl::PointIndices>();
+    
+    if (cloud->empty() || regionRatio <= 0.0 || regionRatio > 1.0) {
+        return centralIndices;
+    }
+    
+    // 计算边界框
+    PointT minPt, maxPt;
+    pcl::getMinMax3D(*cloud, minPt, maxPt);
+    
+    // 计算中央区域的边界
+    double totalWidth = maxPt.x - minPt.x;
+    double totalLength = maxPt.y - minPt.y;
+    double marginX = totalWidth * (1.0 - regionRatio) / 2.0;
+    double marginY = totalLength * (1.0 - regionRatio) / 2.0;
+    
+    double centralMinX = minPt.x + marginX;
+    double centralMaxX = maxPt.x - marginX;
+    double centralMinY = minPt.y + marginY;
+    double centralMaxY = maxPt.y - marginY;
+    
+    // 预分配索引容器
+    centralIndices->indices.reserve(static_cast<size_t>(cloud->size() * regionRatio * regionRatio));
+    
+    // 筛选中央区域的点
+    for (size_t i = 0; i < cloud->size(); ++i) {
+        const auto& point = cloud->points[i];
+        if (point.x >= centralMinX && point.x <= centralMaxX &&
+            point.y >= centralMinY && point.y <= centralMaxY) {
+            centralIndices->indices.push_back(static_cast<int>(i));
+        }
+    }
+    
+    return centralIndices;
 }
 
 pcl::PointIndices::Ptr PotholeDetector::detectPotholeCandidatesZThreshold(
@@ -248,6 +336,58 @@ std::vector<pcl::PointIndices> PotholeDetector::clusterPotholeCandidates(
     return originalClusterIndices;
 }
 
+std::vector<pcl::PointIndices> PotholeDetector::selectLargestPothole(
+    PCLPointCloud::Ptr cloud, const std::vector<pcl::PointIndices>& clusters, double surfaceZ) {
+    
+    if (clusters.empty()) {
+        return std::vector<pcl::PointIndices>();
+    }
+    
+    size_t maxClusterIndex = 0;
+    double maxScore = 0.0;
+    
+    // * 基于深度×点数的综合评分选择最大凹坑
+    for (size_t i = 0; i < clusters.size(); ++i) {
+        const auto& cluster = clusters[i];
+        
+        if (cluster.indices.empty()) continue;
+        
+        // 计算该聚类的最大深度和平均深度
+        double maxDepth = 0.0;
+        double totalDepth = 0.0;
+        size_t validPointCount = 0;
+        
+        for (int idx : cluster.indices) {
+            const auto& point = cloud->points[idx];
+            double depth = surfaceZ - point.z;
+            if (depth > 0) {
+                maxDepth = std::max(maxDepth, depth);
+                totalDepth += depth;
+                validPointCount++;
+            }
+        }
+        
+        if (validPointCount == 0) continue;
+        
+        // 综合评分：最大深度 × 点数量权重 × 深度一致性权重
+        double avgDepth = totalDepth / validPointCount;
+        double depthConsistency = (maxDepth > 0) ? (avgDepth / maxDepth) : 0.0; // [0,1]
+        double score = maxDepth * std::sqrt(validPointCount) * (0.5 + 0.5 * depthConsistency);
+        
+        if (score > maxScore) {
+            maxScore = score;
+            maxClusterIndex = i;
+        }
+    }
+    
+    // 返回最大评分的单个聚类
+    if (maxScore > 0) {
+        return {clusters[maxClusterIndex]};
+    }
+    
+    return std::vector<pcl::PointIndices>();
+}
+
 void PotholeDetector::generatePotholeInfo(PCLPointCloud::Ptr cloud, 
                                         const std::vector<pcl::PointIndices>& clusters, 
                                         AnalysisResult& result) {
@@ -302,26 +442,39 @@ PotholeInfo PotholeDetector::calculatePotholeGeometry(PCLPointCloud::Ptr cloud,
     pothole.width = pothole.maxPoint.x - pothole.minPoint.x;
     pothole.length = pothole.maxPoint.y - pothole.minPoint.y;
     
-    // 计算深度信息
-    double totalZ = 0.0;
+    // * 计算最大深度信息（去掉平均深度）
     double minZ = std::numeric_limits<double>::max();
-    for (const auto& point : pothole.potholePoints->points) {
-        totalZ += point.z;
-        minZ = std::min(minZ, static_cast<double>(point.z));
-    }
-    double avgZ = totalZ / pothole.potholePoints->size();
+    size_t deepestPointIndex = 0;
     
-    // 估算表面高度（使用整体点云的上四分位数）
+    // 找到最深点和最深点索引
+    for (size_t i = 0; i < pothole.potholePoints->size(); ++i) {
+        const auto& point = pothole.potholePoints->points[i];
+        if (static_cast<double>(point.z) < minZ) {
+            minZ = static_cast<double>(point.z);
+            deepestPointIndex = i;
+        }
+    }
+    
+    // ! 修复表面高度估算 - 使用95%分位数作为路面参考
+    // 对于路面扫描数据，大部分点应该接近路面，凹坑是少数低点
     std::vector<float> allZ;
     allZ.reserve(cloud->size());
     for (const auto& point : cloud->points) {
         allZ.push_back(point.z);
     }
     std::sort(allZ.begin(), allZ.end());
-    double surfaceZ = allZ[static_cast<size_t>(allZ.size() * 0.75)]; // 75%分位数作为表面高度
     
-    pothole.depth = surfaceZ - avgZ;
+    // 使用95%分位数作为路面表面参考高度，这样能更准确地反映实际路面水平
+    double surfaceZ = allZ[static_cast<size_t>(allZ.size() * 0.95)];
+    
+    // ! 只计算最大深度，不计算平均深度
     pothole.maxDepth = surfaceZ - minZ;
+    pothole.depth = 0.0;  // 平均深度设为0，表示不使用
+    
+    // 设置最深点位置
+    if (deepestPointIndex < pothole.potholePoints->size()) {
+        pothole.deepestPoint = pothole.potholePoints->points[deepestPointIndex];
+    }
     
     // 计算投影面积
     pothole.area = calculateProjectionArea(pothole.potholePoints);
@@ -378,8 +531,8 @@ double PotholeDetector::calculateConfidence(const PotholeInfo& pothole, size_t t
     // 基于面积的置信度
     double areaConfidence = (pothole.area >= params_.minPotholeArea) ? 1.0 : 0.5;
     
-    // 基于深度的置信度
-    double depthConfidence = std::min(1.0, pothole.depth * 100.0); // 深度*100，最大为1
+    // 基于深度的置信度（使用最大深度而不是平均深度）
+    double depthConfidence = std::min(1.0, pothole.maxDepth * 50.0); // 最大深度*50，最大为1
     
     // 基于几何形状的置信度
     double aspectRatio = pothole.getAspectRatio();
@@ -454,6 +607,12 @@ AnalysisParams createDefaultAnalysisParams() {
     params.noiseFilterRadius = 0.02; // 2厘米
     params.minConfidenceThreshold = 0.3;
     params.enableQualityFiltering = true;
+    
+    // 新增的中央区域过滤参数
+    params.enableCentralRegionFilter = false;  // 默认关闭
+    params.centralRegionRatio = 0.6;           // 中央60%区域
+    params.detectSingleMaxPothole = false;    // 默认检测多个凹坑
+    
     return params;
 }
 
@@ -474,6 +633,34 @@ AnalysisParams createFastAnalysisParams() {
     params.enableMultipleDetection = false; // 只检测最显著的凹坑
     params.noiseFilterRadius = 0.0;      // 跳过噪声过滤
     params.enableQualityFiltering = false; // 跳过质量过滤
+    return params;
+}
+
+AnalysisParams createCentralMaxPotholeParams() {
+    auto params = createDefaultAnalysisParams();
+    
+    // ! 启用中央区域过滤和单坑检测 - 针对自动深度分析优化
+    params.enableCentralRegionFilter = true;   // 启用中央区域过滤
+    params.centralRegionRatio = 0.8;           // 扩大到中央80%区域，获取更多数据
+    params.detectSingleMaxPothole = true;     // 只检测最大单个凹坑
+    
+    // * 优化参数设置以提高单坑检测精度和深度分析能力
+    params.enableMultipleDetection = false;   // 关闭多凹坑检测模式
+    params.minPotholePoints = 3;              // 进一步降低最小点数要求，提高灵敏度
+    params.minPotholeArea = 0.0005;           // 更小的最小面积阈值（0.5平方厘米）
+    params.minConfidenceThreshold = 0.15;     // 更低的置信度要求，提高检测率
+    
+    // * 使用Z阈值方法进行更快速的深度分析
+    params.useRANSACFitting = false;          // 改为Z阈值方法，更适合深度分析
+    params.zThresholdPercentile = 15.0;       // 更敏感的Z阈值（15%分位数）
+    
+    // * 聚类参数优化
+    params.clusteringRadius = 0.04;           // 稍大的聚类半径，聚合更多相关点
+    
+    // * 启用质量过滤确保结果可靠性
+    params.enableQualityFiltering = true;
+    params.noiseFilterRadius = 0.015;         // 适度的噪声过滤
+    
     return params;
 }
 

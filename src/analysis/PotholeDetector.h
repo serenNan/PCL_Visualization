@@ -107,6 +107,14 @@ private:
     PCLPointCloud::Ptr preprocessPointCloud(PCLPointCloud::Ptr cloud, AnalysisResult& result);
     
     /**
+     * @brief 提取中央区域点云
+     * @param cloud 输入点云
+     * @param regionRatio 中央区域占比 [0.1, 1.0]
+     * @return 中央区域点索引
+     */
+    pcl::PointIndices::Ptr extractCentralRegion(PCLPointCloud::Ptr cloud, double regionRatio);
+    
+    /**
      * @brief 使用Z阈值方法检测凹坑候选点
      * @param cloud 输入点云
      * @param result 分析结果
@@ -133,6 +141,16 @@ private:
      */
     std::vector<pcl::PointIndices> clusterPotholeCandidates(
         PCLPointCloud::Ptr cloud, pcl::PointIndices::Ptr candidateIndices, AnalysisResult& result);
+    
+    /**
+     * @brief 从聚类中选择最大的单个凹坑
+     * @param cloud 输入点云
+     * @param clusters 聚类结果
+     * @param surfaceZ 表面高度
+     * @return 最大凹坑的聚类索引，如果没有则返回空vector
+     */
+    std::vector<pcl::PointIndices> selectLargestPothole(
+        PCLPointCloud::Ptr cloud, const std::vector<pcl::PointIndices>& clusters, double surfaceZ);
     
     /**
      * @brief 从点云聚类生成凹坑信息
@@ -232,6 +250,12 @@ AnalysisParams createSensitiveAnalysisParams();
  * @return 快速检测参数
  */
 AnalysisParams createFastAnalysisParams();
+
+/**
+ * @brief 创建专用于中央最大凹坑检测的参数配置
+ * @return 中央最大凹坑检测参数
+ */
+AnalysisParams createCentralMaxPotholeParams();
 
 } // namespace analysis
 } // namespace pcl_viz

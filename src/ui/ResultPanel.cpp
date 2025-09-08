@@ -21,13 +21,11 @@ ResultPanel::ResultPanel(QWidget *parent)
     : QWidget(parent)
     , m_mainLayout(nullptr)
     , m_measurementGroup(nullptr)
-    , m_depthEdit(nullptr)
     , m_volumeEdit(nullptr)
     , m_areaEdit(nullptr)
     , m_widthEdit(nullptr)
     , m_lengthEdit(nullptr)
     , m_maxDepthEdit(nullptr)
-    , m_avgDepthEdit(nullptr)
     , m_pointCloudGroup(nullptr)
     , m_fileNameLabel(nullptr)
     , m_pointCountLabel(nullptr)
@@ -67,52 +65,30 @@ ResultPanel::ResultPanel(QWidget *parent)
 ResultPanel::~ResultPanel() = default;
 
 void ResultPanel::updateResults(const PotholeResult& result) {
-    // ! 调试日志：接收到的结果数据
-    qDebug() << "[DEBUG] ResultPanel::updateResults() 被调用";
-    qDebug() << "[DEBUG] 接收到的数据:"
-             << "深度:" << result.depth
-             << ", 体积:" << result.volume
-             << ", 面积:" << result.area
-             << ", 宽度:" << result.width
-             << ", 长度:" << result.length
-             << ", 最大深度:" << result.maxDepth
-             << ", 平均深度:" << result.avgDepth
-             << ", 点数:" << result.pointCount
-             << ", 有效性:" << result.isValid;
     
     m_currentResult = result;
     
     // 更新所有结果显示
-    updateResultDisplay(m_depthEdit, result.depth, "mm");
     updateResultDisplay(m_volumeEdit, result.volume, "mm³");
     updateResultDisplay(m_areaEdit, result.area, "mm²");
     updateResultDisplay(m_widthEdit, result.width, "mm");
     updateResultDisplay(m_lengthEdit, result.length, "mm");
     updateResultDisplay(m_maxDepthEdit, result.maxDepth, "mm");
-    updateResultDisplay(m_avgDepthEdit, result.avgDepth, "mm");
-    
-    // ! 调试日志：界面更新完成
-    qDebug() << "[DEBUG] 界面控件更新完成";
     
     // 更新有效性
     setResultsValid(result.isValid);
     
     // 更新时间戳
     updateTimeDisplay();
-    
-    // ! 调试日志：ResultPanel更新完成
-    qDebug() << "[DEBUG] ResultPanel::updateResults() 完成";
 }
 
 void ResultPanel::clearResults() {
     // 清空所有显示
-    m_depthEdit->clear();
     m_volumeEdit->clear();
     m_areaEdit->clear();
     m_widthEdit->clear();
     m_lengthEdit->clear();
     m_maxDepthEdit->clear();
-    m_avgDepthEdit->clear();
     
     // 重置结果对象
     m_currentResult = PotholeResult();
@@ -247,19 +223,15 @@ void ResultPanel::onCopyToClipboard() {
         "生成时间: %1\n"
         "文件名: %2\n\n"
         "测量结果:\n"
-        "深度: %3 mm\n"
-        "最大深度: %4 mm\n"
-        "平均深度: %5 mm\n"
-        "体积: %6 mm³\n"
-        "面积: %7 mm²\n"
-        "宽度: %8 mm\n"
-        "长度: %9 mm\n"
-        "点云数量: %10"
+        "最大深度: %3 mm\n"
+        "体积: %4 mm³\n"
+        "面积: %5 mm²\n"
+        "宽度: %6 mm\n"
+        "长度: %7 mm\n"
+        "点云数量: %8"
     ).arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"))
      .arg(m_currentPointCloud ? QString::fromStdString(m_currentPointCloud->getFilename()) : "无")
-     .arg(m_currentResult.depth, 0, 'f', 2)
      .arg(m_currentResult.maxDepth, 0, 'f', 2)
-     .arg(m_currentResult.avgDepth, 0, 'f', 2)
      .arg(m_currentResult.volume, 0, 'f', 2)
      .arg(m_currentResult.area, 0, 'f', 2)
      .arg(m_currentResult.width, 0, 'f', 2)
@@ -328,13 +300,11 @@ QGroupBox* ResultPanel::createMeasurementGroup() {
     layout->setContentsMargins(8, 12, 8, 8);
     
     // 创建结果显示项
-    createResultItem(layout, 0, "深度:", m_depthEdit, "mm");
-    createResultItem(layout, 1, "最大深度:", m_maxDepthEdit, "mm");
-    createResultItem(layout, 2, "平均深度:", m_avgDepthEdit, "mm");
-    createResultItem(layout, 3, "体积:", m_volumeEdit, "mm³");
-    createResultItem(layout, 4, "面积:", m_areaEdit, "mm²");
-    createResultItem(layout, 5, "宽度:", m_widthEdit, "mm");
-    createResultItem(layout, 6, "长度:", m_lengthEdit, "mm");
+    createResultItem(layout, 0, "最大深度:", m_maxDepthEdit, "mm");
+    createResultItem(layout, 1, "体积:", m_volumeEdit, "mm³");
+    createResultItem(layout, 2, "面积:", m_areaEdit, "mm²");
+    createResultItem(layout, 3, "宽度:", m_widthEdit, "mm");
+    createResultItem(layout, 4, "长度:", m_lengthEdit, "mm");
     
     return group;
 }
@@ -503,24 +473,18 @@ void ResultPanel::createResultItem(QGridLayout* layout, int row, const QString& 
 }
 
 void ResultPanel::updateResultDisplay(QLineEdit* edit, double value, const QString& unit, int precision) {
+    Q_UNUSED(unit)  // 单位在布局中已设置，此处不使用
     if (!edit) {
-        // ! 调试日志：空指针检查失败
-        qDebug() << "[ERROR] updateResultDisplay: 编辑控件指针为空";
         return;
     }
-    
-    // ! 调试日志：更新单个控件
-    qDebug() << "[DEBUG] 更新控件 - 值:" << value << ", 单位:" << unit;
     
     if (std::isnan(value) || std::isinf(value) || value == 0.0) {
         edit->setText("--");
         edit->setStyleSheet("QLineEdit { color: #888888; }");
-        qDebug() << "[DEBUG] 设置为无效值显示: --";
     } else {
         QString displayText = QString::number(value, 'f', precision);
         edit->setText(displayText);
         edit->setStyleSheet("QLineEdit { color: #000000; font-weight: bold; }");
-        qDebug() << "[DEBUG] 设置有效值显示:" << displayText;
     }
 }
 
@@ -557,9 +521,7 @@ bool ResultPanel::exportAsJson(const QString& filename) {
     
     // 测量结果
     QJsonObject measurements;
-    measurements["depth_mm"] = m_currentResult.depth;
     measurements["maxDepth_mm"] = m_currentResult.maxDepth;
-    measurements["avgDepth_mm"] = m_currentResult.avgDepth;
     measurements["volume_mm3"] = m_currentResult.volume;
     measurements["area_mm2"] = m_currentResult.area;
     measurements["width_mm"] = m_currentResult.width;
@@ -593,9 +555,7 @@ bool ResultPanel::exportAsCsv(const QString& filename) {
     stream << "Timestamp," << QDateTime::currentDateTime().toString(Qt::ISODate) << ",\n";
     stream << "Filename," << (m_currentPointCloud ? QString::fromStdString(m_currentPointCloud->getFilename()) : "") << ",\n";
     stream << "Point Count," << (m_currentPointCloud ? m_currentPointCloud->size() : 0) << ",\n";
-    stream << "Depth," << m_currentResult.depth << ",mm\n";
     stream << "Max Depth," << m_currentResult.maxDepth << ",mm\n";
-    stream << "Avg Depth," << m_currentResult.avgDepth << ",mm\n";
     stream << "Volume," << m_currentResult.volume << ",mm³\n";
     stream << "Area," << m_currentResult.area << ",mm²\n";
     stream << "Width," << m_currentResult.width << ",mm\n";
@@ -621,9 +581,7 @@ bool ResultPanel::exportAsText(const QString& filename) {
     
     stream << "测量结果:\n";
     stream << "---------\n";
-    stream << "深度: " << m_currentResult.depth << " mm\n";
     stream << "最大深度: " << m_currentResult.maxDepth << " mm\n";
-    stream << "平均深度: " << m_currentResult.avgDepth << " mm\n";
     stream << "体积: " << m_currentResult.volume << " mm³\n";
     stream << "面积: " << m_currentResult.area << " mm²\n";
     stream << "宽度: " << m_currentResult.width << " mm\n";

@@ -38,8 +38,6 @@ MainWindow::MainWindow(QWidget *parent)
     , m_resultPanel(nullptr)
     , m_fileMenu(nullptr)
     , m_viewMenu(nullptr)
-    , m_analysisMenu(nullptr)
-    , m_toolsMenu(nullptr)
     , m_helpMenu(nullptr)
     , m_openAction(nullptr)
     , m_saveScreenshotAction(nullptr)
@@ -169,8 +167,10 @@ bool MainWindow::loadPointCloud(const QString& filename) {
         m_statusLabel->setText(QString("点云加载成功 - %1 个点").arg(m_currentPointCloud->size()));
         m_progressBar->setVisible(false);
         
-        // 启用分析功能
-        m_startAnalysisAction->setEnabled(true);
+        // 导入数据后自动开始深度分析
+        QTimer::singleShot(100, [this]() {
+            startAutomaticAnalysis();
+        });
         
         // 发出信号
         emit pointCloudLoaded(m_currentPointCloud);
@@ -369,29 +369,6 @@ void MainWindow::createMenuBar() {
     m_toggleResultPanelAction->setStatusTip("切换结果面板显示/隐藏");
     m_viewMenu->addAction(m_toggleResultPanelAction);
     
-    // 分析菜单
-    m_analysisMenu = menuBar()->addMenu("分析(&A)");
-    
-    m_startAnalysisAction = new QAction("开始分析(&S)", this);
-    m_startAnalysisAction->setShortcut(QKeySequence("F5"));
-    m_startAnalysisAction->setStatusTip("开始凹坑检测分析");
-    m_startAnalysisAction->setEnabled(false); // 初始禁用，直到加载点云
-    m_analysisMenu->addAction(m_startAnalysisAction);
-    
-    m_stopAnalysisAction = new QAction("停止分析(&T)", this);
-    m_stopAnalysisAction->setShortcut(QKeySequence("Escape"));
-    m_stopAnalysisAction->setStatusTip("停止当前分析");
-    m_stopAnalysisAction->setEnabled(false);
-    m_analysisMenu->addAction(m_stopAnalysisAction);
-    
-    m_analysisMenu->addSeparator();
-    
-    m_analysisSettingsAction = new QAction("分析设置(&C)...", this);
-    m_analysisSettingsAction->setStatusTip("配置分析参数");
-    m_analysisMenu->addAction(m_analysisSettingsAction);
-    
-    // 工具菜单
-    m_toolsMenu = menuBar()->addMenu("工具(&T)");
     
     // 视图菜单 - 添加主题选项
     m_viewMenu->addSeparator();
@@ -527,6 +504,11 @@ void MainWindow::connectSignalsAndSlots() {
     connect(m_resetCameraAction, &QAction::triggered, this, &MainWindow::onResetCamera);
     connect(m_toggleResultPanelAction, &QAction::triggered, this, &MainWindow::onToggleResultPanel);
     connect(m_aboutAction, &QAction::triggered, this, &MainWindow::onAbout);
+    
+    // 创建内部分析控制Actions（不显示在菜单中）
+    m_startAnalysisAction = new QAction(this);
+    m_stopAnalysisAction = new QAction(this);
+    m_analysisSettingsAction = new QAction(this);
     
     // 分析相关信号连接
     connect(m_startAnalysisAction, &QAction::triggered, this, &MainWindow::onStartAnalysis);
@@ -696,8 +678,27 @@ void MainWindow::setupAnalysisEngine() {
         }
     );
     
-    // 设置分析参数
+    // 使用优化的深度分析参数
+    m_analysisParams = analysis::createCentralMaxPotholeParams();
     m_potholeDetector->setAnalysisParams(m_analysisParams);
+}
+
+void MainWindow::startAutomaticAnalysis() {
+    if (!m_currentPointCloud) {
+        m_statusLabel->setText("错误：未加载点云数据");
+        return;
+    }
+    
+    if (m_analysisInProgress) {
+        return; // 避免重复分析
+    }
+    
+    m_statusLabel->setText("正在进行智能深度分析...");
+    m_progressBar->setVisible(true);
+    m_progressBar->setValue(0);
+    
+    // 直接调用分析函数
+    onStartAnalysis();
 }
 
 void MainWindow::onStartAnalysis() {
@@ -780,39 +781,21 @@ void MainWindow::onAnalysisResultUpdated(const analysis::AnalysisResult& result)
     
     // 更新结果面板
     if (m_resultPanel) {
-        // ! 调试日志：开始数据转换
-        qDebug() << "[DEBUG] 开始更新结果面板 - 凹坑数量:" << result.potholes.size();
-        
         // 创建简化的结果用于结果面板
         ui::PotholeResult panelResult;
         if (!result.potholes.empty()) {
             const auto& firstPothole = result.potholes[0];
             // * 重要：单位转换 - analysis模块使用米(m)，UI模块使用毫米(mm)
-            panelResult.depth = firstPothole.depth * 1000.0;      // m -> mm
             panelResult.volume = firstPothole.volume * 1e9;       // m³ -> mm³
             panelResult.area = firstPothole.area * 1e6;           // m² -> mm²
             panelResult.width = firstPothole.width * 1000.0;      // m -> mm
             panelResult.length = firstPothole.length * 1000.0;    // m -> mm
             panelResult.maxDepth = firstPothole.maxDepth * 1000.0; // m -> mm
-            panelResult.avgDepth = firstPothole.depth * 1000.0;   // m -> mm
             panelResult.pointCount = firstPothole.pointCount;
             panelResult.isValid = result.analysisSuccessful;
-            
-            // ! 调试日志：转换后的数值
-            qDebug() << "[DEBUG] 转换后的数值:"
-                     << "深度:" << panelResult.depth << "mm"
-                     << ", 体积:" << panelResult.volume << "mm³"
-                     << ", 面积:" << panelResult.area << "mm²"
-                     << ", 宽度:" << panelResult.width << "mm"
-                     << ", 长度:" << panelResult.length << "mm";
         } else {
-            // ! 调试日志：没有检测到凹坑
-            qDebug() << "[WARNING] 没有检测到凹坑，设置结果为无效";
             panelResult.isValid = false;
         }
-        
-        // ! 调试日志：调用updateResults
-        qDebug() << "[DEBUG] 调用 ResultPanel::updateResults(), isValid:" << panelResult.isValid;
         m_resultPanel->updateResults(panelResult);
     }
     

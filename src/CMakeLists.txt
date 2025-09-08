@@ -162,7 +162,7 @@ if(VTK_VERSION VERSION_GREATER_EQUAL "9.0.0")
 endif()
 
 # 创建测试程序
-add_executable(test_analysis_debug build/test_analysis.cpp)
+add_executable(test_analysis_debug ../tests/test_analysis.cpp)
 target_link_libraries(test_analysis_debug 
     pcl_viz_core
     pcl_viz_analysis
@@ -172,8 +172,19 @@ target_include_directories(test_analysis_debug PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
+# 创建中央最大凹坑测试程序
+add_executable(test_central_max_pothole ../tests/test_central_max_pothole.cpp)
+target_link_libraries(test_central_max_pothole 
+    pcl_viz_core
+    pcl_viz_analysis
+    ${PCL_LIBRARIES}
+)
+target_include_directories(test_central_max_pothole PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # 设置输出目录
-set_target_properties(pcl_viewer_gui test_analysis_debug PROPERTIES
+set_target_properties(pcl_viewer_gui test_analysis_debug test_central_max_pothole PROPERTIES
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
 )
 
