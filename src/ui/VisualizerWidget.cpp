@@ -683,10 +683,11 @@ void VisualizerWidget::setupCamera(const std::shared_ptr<core::PointCloud>& poin
     // 使用Camera3D自动适配点云
     m_camera->autoFit(minPt.x, maxPt.x, minPt.y, maxPt.y, minPt.z, maxPt.z);
     
-    qDebug() << "相机已自动适配点云边界:"
-             << "X[" << minPt.x << "," << maxPt.x << "]"
-             << "Y[" << minPt.y << "," << maxPt.y << "]" 
-             << "Z[" << minPt.z << "," << maxPt.z << "]";
+    // ! 修复：注释掉重复的相机适配日志，避免终端刷屏
+    // qDebug() << "相机已自动适配点云边界:"
+    //          << "X[" << minPt.x << "," << maxPt.x << "]"
+    //          << "Y[" << minPt.y << "," << maxPt.y << "]" 
+    //          << "Z[" << minPt.z << "," << maxPt.z << "]";
 }
 
 void VisualizerWidget::applyColorMapping(const std::shared_ptr<core::PointCloud>& pointCloud, 
@@ -824,7 +825,8 @@ void VisualizerWidget::renderPointCloudBasic(core::PCLPointCloud::Ptr pclCloud) 
     float spanZ = maxPt.z - minPt.z;
     float maxSpan = std::max({spanX, spanY, spanZ});
     
-    qDebug() << "点云中心:" << centerX << centerY << centerZ << "最大跨度:" << maxSpan;
+    // ! 修复：注释掉重复的日志输出，避免终端刷屏
+    // qDebug() << "点云中心:" << centerX << centerY << centerZ << "最大跨度:" << maxSpan;
     
     // 启用深度测试
     glEnable(GL_DEPTH_TEST);

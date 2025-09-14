@@ -206,6 +206,58 @@ private:
     double calculateSurfaceRoughness(PCLPointCloud::Ptr cloud);
     
     /**
+     * @brief 计算局部表面高度（使用周围点拟合平面）
+     * @param cloud 全局点云
+     * @param potholePoints 凹坑点云
+     * @return 局部表面参考高度
+     */
+    double calculateLocalSurfaceHeight(PCLPointCloud::Ptr cloud, PCLPointCloud::Ptr potholePoints);
+    
+    /**
+     * @brief 使用统计方法计算表面高度
+     * @param cloud 点云
+     * @return 统计表面高度
+     */
+    double calculateStatisticalSurfaceHeight(PCLPointCloud::Ptr cloud);
+    
+    /**
+     * @brief 为单个凹坑点计算局部表面高度
+     * @param cloud 全局点云
+     * @param potholePoint 凹坑点
+     * @param potholePoints 所有凹坑点云（用于排除）
+     * @return 该点的局部表面高度
+     */
+    double calculatePointLocalSurface(PCLPointCloud::Ptr cloud, const PointT& potholePoint, PCLPointCloud::Ptr potholePoints);
+    
+    /**
+     * @brief 使用改进的统计方法计算局部区域表面高度
+     * @param cloud 点云
+     * @param centerX 中心X坐标
+     * @param centerY 中心Y坐标
+     * @return 局部区域统计表面高度
+     */
+    double calculateImprovedStatisticalSurface(PCLPointCloud::Ptr cloud, double centerX, double centerY);
+    
+    /**
+     * @brief 使用最小二乘法拟合平面并获取指定位置的高度
+     * @param points 用于拟合的点
+     * @param x 查询点X坐标
+     * @param y 查询点Y坐标
+     * @return 拟合平面在指定位置的高度
+     */
+    double fitPlaneAndGetHeight(const std::vector<PointT>& points, double x, double y);
+    
+    /**
+     * @brief 使用最小二乘法拟合3D平面
+     * @param points 用于拟合的点
+     * @param a 平面参数a（z = ax + by + c）
+     * @param b 平面参数b
+     * @param c 平面参数c
+     * @return 拟合是否成功
+     */
+    bool fitPlaneToPoints(const std::vector<PointT>& points, double& a, double& b, double& c);
+    
+    /**
      * @brief 报告进度
      * @param stage 阶段名称
      * @param progress 进度百分比

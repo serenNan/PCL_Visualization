@@ -73,7 +73,7 @@ void ResultPanel::updateResults(const PotholeResult& result) {
     updateResultDisplay(m_areaEdit, result.area, "mm²");
     updateResultDisplay(m_widthEdit, result.width, "mm");
     updateResultDisplay(m_lengthEdit, result.length, "mm");
-    updateResultDisplay(m_maxDepthEdit, result.maxDepth, "mm");
+    updateResultDisplay(m_maxDepthEdit, result.maxDepth, "mm", 5);
     
     // 更新有效性
     setResultsValid(result.isValid);
@@ -555,7 +555,7 @@ bool ResultPanel::exportAsCsv(const QString& filename) {
     stream << "Timestamp," << QDateTime::currentDateTime().toString(Qt::ISODate) << ",\n";
     stream << "Filename," << (m_currentPointCloud ? QString::fromStdString(m_currentPointCloud->getFilename()) : "") << ",\n";
     stream << "Point Count," << (m_currentPointCloud ? m_currentPointCloud->size() : 0) << ",\n";
-    stream << "Max Depth," << m_currentResult.maxDepth << ",mm\n";
+    stream << "Max Depth," << QString::number(m_currentResult.maxDepth, 'f', 5) << ",mm\n";
     stream << "Volume," << m_currentResult.volume << ",mm³\n";
     stream << "Area," << m_currentResult.area << ",mm²\n";
     stream << "Width," << m_currentResult.width << ",mm\n";
@@ -581,7 +581,7 @@ bool ResultPanel::exportAsText(const QString& filename) {
     
     stream << "测量结果:\n";
     stream << "---------\n";
-    stream << "最大深度: " << m_currentResult.maxDepth << " mm\n";
+    stream << "最大深度: " << QString::number(m_currentResult.maxDepth, 'f', 5) << " mm\n";
     stream << "体积: " << m_currentResult.volume << " mm³\n";
     stream << "面积: " << m_currentResult.area << " mm²\n";
     stream << "宽度: " << m_currentResult.width << " mm\n";

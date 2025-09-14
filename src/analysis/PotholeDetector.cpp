@@ -455,21 +455,70 @@ PotholeInfo PotholeDetector::calculatePotholeGeometry(PCLPointCloud::Ptr cloud,
         }
     }
     
-    // ! 修复表面高度估算 - 使用95%分位数作为路面参考
-    // 对于路面扫描数据，大部分点应该接近路面，凹坑是少数低点
-    std::vector<float> allZ;
-    allZ.reserve(cloud->size());
+    // ! 3D平面拟合算法：结合XYZ三个维度计算深度
+    // 使用最小二乘法拟合平面 z = ax + by + c，然后计算点到平面的距离
+    
+    // 收集所有点用于平面拟合
+    std::vector<PointT> allPoints;
+    allPoints.reserve(cloud->size());
     for (const auto& point : cloud->points) {
-        allZ.push_back(point.z);
+        allPoints.push_back(point);
     }
-    std::sort(allZ.begin(), allZ.end());
     
-    // 使用95%分位数作为路面表面参考高度，这样能更准确地反映实际路面水平
-    double surfaceZ = allZ[static_cast<size_t>(allZ.size() * 0.95)];
+    // 使用最小二乘法拟合平面
+    double planeA = 0.0, planeB = 0.0, planeC = 0.0;
+    bool planeFitted = fitPlaneToPoints(allPoints, planeA, planeB, planeC);
     
-    // ! 只计算最大深度，不计算平均深度
-    pothole.maxDepth = surfaceZ - minZ;
-    pothole.depth = 0.0;  // 平均深度设为0，表示不使用
+    if (!planeFitted) {
+        // 平面拟合失败，使用Z平均值作为后备
+        double totalZ = 0.0;
+        for (const auto& point : cloud->points) {
+            totalZ += point.z;
+        }
+        double avgZ = totalZ / cloud->size();
+        pothole.maxDepth = (minZ < avgZ) ? (avgZ - minZ) : 0.0;
+        pothole.depth = 0.0;
+        return pothole;
+    }
+    
+    // 计算凹坑点中到拟合平面距离最大的点
+    double maxDistance = 0.0;
+    PointT deepestPoint;
+    
+    for (const auto& point : pothole.potholePoints->points) {
+        // 计算点到平面的距离
+        double planeZ = planeA * point.x + planeB * point.y + planeC;
+        double distance = std::abs(point.z - planeZ);
+        
+        if (distance > maxDistance) {
+            maxDistance = distance;
+            deepestPoint = point;
+        }
+    }
+    
+    // 检查是否为真正的凹坑（点在平面下方）
+    double deepestPlaneZ = planeA * deepestPoint.x + planeB * deepestPoint.y + planeC;
+    if (deepestPoint.z < deepestPlaneZ) {
+        pothole.maxDepth = maxDistance;  // 数据已经是mm单位
+        
+        // 调试输出
+        std::cout << "[DEBUG] 3D平面拟合: a=" << planeA << ", b=" << planeB << ", c=" << planeC << std::endl;
+        std::cout << "[DEBUG] 最深点: (" << deepestPoint.x << ", " << deepestPoint.y << ", " << deepestPoint.z << ")" << std::endl;
+        std::cout << "[DEBUG] 平面Z=" << deepestPlaneZ << "mm, 实际Z=" << deepestPoint.z << "mm, 深度=" << maxDistance << "mm" << std::endl;
+    } else {
+        // 点在平面上方，不算凹坑
+        pothole.maxDepth = 0.0;
+    }
+    
+    pothole.depth = 0.0;  // 不计算平均深度
+    
+    // ! 深度范围验证（0.01-100mm，放宽限制）
+    if (pothole.maxDepth < 0.01) {
+        pothole.maxDepth = 0.0;  // 过小的深度认为是噪声
+    } else if (pothole.maxDepth > 100.0) {
+        // ! 放宽最大深度限制为100mm
+        pothole.maxDepth = 100.0;
+    }
     
     // 设置最深点位置
     if (deepestPointIndex < pothole.potholePoints->size()) {
@@ -479,7 +528,19 @@ PotholeInfo PotholeDetector::calculatePotholeGeometry(PCLPointCloud::Ptr cloud,
     // 计算投影面积
     pothole.area = calculateProjectionArea(pothole.potholePoints);
     
-    // 计算体积
+    // 计算体积 - 使用拟合平面作为参考
+    double surfaceZ = 0.0;
+    if (planeFitted) {
+        // 使用凹坑中心在拟合平面上的高度
+        surfaceZ = planeA * pothole.center.x + planeB * pothole.center.y + planeC;
+    } else {
+        // 后备方案
+        double totalZ = 0.0;
+        for (const auto& point : cloud->points) {
+            totalZ += point.z;
+        }
+        surfaceZ = totalZ / cloud->size();
+    }
     pothole.volume = calculateVolume(pothole.potholePoints, surfaceZ);
     
     return pothole;
@@ -506,19 +567,26 @@ double PotholeDetector::calculateVolume(PCLPointCloud::Ptr potholePoints, double
         return 0.0;
     }
     
-    // 简化的体积计算：面积 × 平均深度
+    // ! 修复体积计算：适应实际数据的深度范围
     double totalDepth = 0.0;
+    size_t validPoints = 0;
+    
     for (const auto& point : potholePoints->points) {
-        double depth = surfaceZ - point.z;
-        if (depth > 0) {
+        double depth = surfaceZ - point.z;  // 数据已经是mm单位
+        if (depth > 0.01 && depth < 10.0) {  // ! 调整为0.01-10mm范围，适应毫米级数据
             totalDepth += depth;
+            validPoints++;
         }
     }
     
-    double avgDepth = totalDepth / potholePoints->size();
-    double area = calculateProjectionArea(potholePoints);
+    if (validPoints == 0) {
+        return 0.0;
+    }
     
-    return area * avgDepth;
+    double avgDepthMM = totalDepth / validPoints;
+    double areaMM2 = calculateProjectionArea(potholePoints) * 1000000.0;  // 转换为平方毫米
+    
+    return areaMM2 * avgDepthMM / 1000.0;  // 返回立方毫米单位的体积
 }
 
 double PotholeDetector::calculateConfidence(const PotholeInfo& pothole, size_t totalPoints) {
@@ -531,8 +599,8 @@ double PotholeDetector::calculateConfidence(const PotholeInfo& pothole, size_t t
     // 基于面积的置信度
     double areaConfidence = (pothole.area >= params_.minPotholeArea) ? 1.0 : 0.5;
     
-    // 基于深度的置信度（使用最大深度而不是平均深度）
-    double depthConfidence = std::min(1.0, pothole.maxDepth * 50.0); // 最大深度*50，最大为1
+    // 基于深度的置信度（使用毫米单位的最大深度）
+    double depthConfidence = std::min(1.0, pothole.maxDepth / 10.0); // 深度/10mm，10mm深度对应1.0置信度
     
     // 基于几何形状的置信度
     double aspectRatio = pothole.getAspectRatio();
@@ -560,6 +628,138 @@ void PotholeDetector::filterInvalidPotholes(AnalysisResult& result) {
     result.potholes.erase(it, result.potholes.end());
 }
 
+double PotholeDetector::calculateLocalSurfaceHeight(PCLPointCloud::Ptr cloud, PCLPointCloud::Ptr potholePoints) {
+    if (potholePoints->empty() || cloud->size() < 10) {
+        return 0.0;
+    }
+    
+    // ! 完全重写深度计算逻辑 - 使用点对点的局部高度差而非全局统计
+    
+    // 计算凹坑的中心位置
+    PointT minPt, maxPt;
+    pcl::getMinMax3D(*potholePoints, minPt, maxPt);
+    double centerX = (minPt.x + maxPt.x) / 2.0;
+    double centerY = (minPt.y + maxPt.y) / 2.0;
+    
+    // 为每个凹坑点计算最近邻的表面高度，然后取平均值
+    std::vector<double> localSurfaceHeights;
+    localSurfaceHeights.reserve(potholePoints->size());
+    
+    for (const auto& potholePoint : potholePoints->points) {
+        // 寻找该凹坑点周围最近的非凹坑点来估计局部表面高度
+        double localSurface = calculatePointLocalSurface(cloud, potholePoint, potholePoints);
+        if (localSurface > 0) {
+            localSurfaceHeights.push_back(localSurface);
+        }
+    }
+    
+    if (localSurfaceHeights.empty()) {
+        // 如果局部方法失败，使用改进的统计方法
+        return calculateImprovedStatisticalSurface(cloud, centerX, centerY);
+    }
+    
+    // 返回所有局部表面高度的中位数（比平均值更稳健）
+    std::sort(localSurfaceHeights.begin(), localSurfaceHeights.end());
+    return localSurfaceHeights[localSurfaceHeights.size() / 2];
+}
+
+double PotholeDetector::calculatePointLocalSurface(PCLPointCloud::Ptr cloud, const PointT& potholePoint, PCLPointCloud::Ptr potholePoints) {
+    // ! 新函数：为单个点计算局部表面高度
+    
+    // 创建凹坑点集合用于快速查找
+    std::set<std::tuple<float, float, float>> potholeSet;
+    for (const auto& pt : potholePoints->points) {
+        potholeSet.insert(std::make_tuple(pt.x, pt.y, pt.z));
+    }
+    
+    // 寻找距离该点最近的K个非凹坑点
+    std::vector<std::pair<double, double>> nearbyHeights; // (distance, height)
+    const int K = 8; // 使用8个最近邻点
+    const double maxSearchRadius = 0.05; // 最大搜索5厘米
+    
+    for (const auto& cloudPoint : cloud->points) {
+        // 跳过凹坑点
+        auto key = std::make_tuple(cloudPoint.x, cloudPoint.y, cloudPoint.z);
+        if (potholeSet.find(key) != potholeSet.end()) {
+            continue;
+        }
+        
+        // 计算2D距离（只考虑XY平面）
+        double dx = cloudPoint.x - potholePoint.x;
+        double dy = cloudPoint.y - potholePoint.y;
+        double distance2D = std::sqrt(dx * dx + dy * dy);
+        
+        if (distance2D <= maxSearchRadius) {
+            nearbyHeights.push_back({distance2D, cloudPoint.z});
+        }
+    }
+    
+    if (nearbyHeights.size() < 3) {
+        return 0.0; // 没有足够的邻近点
+    }
+    
+    // 按距离排序，取最近的K个点
+    std::sort(nearbyHeights.begin(), nearbyHeights.end());
+    size_t useCount = std::min(static_cast<size_t>(K), nearbyHeights.size());
+    
+    // 使用距离加权平均计算局部表面高度
+    double totalWeight = 0.0;
+    double weightedHeight = 0.0;
+    
+    for (size_t i = 0; i < useCount; ++i) {
+        double distance = nearbyHeights[i].first;
+        double height = nearbyHeights[i].second;
+        
+        // 距离权重：越近权重越大（避免除零）
+        double weight = 1.0 / (distance + 0.001);
+        
+        totalWeight += weight;
+        weightedHeight += height * weight;
+    }
+    
+    return weightedHeight / totalWeight;
+}
+
+double PotholeDetector::calculateImprovedStatisticalSurface(PCLPointCloud::Ptr cloud, double centerX, double centerY) {
+    // ! 改进的统计方法：只考虑中心区域周围的点
+    
+    std::vector<double> nearbyHeights;
+    const double regionRadius = 0.2; // 20厘米半径内的点
+    
+    for (const auto& point : cloud->points) {
+        double dx = point.x - centerX;
+        double dy = point.y - centerY;
+        double distance = std::sqrt(dx * dx + dy * dy);
+        
+        if (distance <= regionRadius) {
+            nearbyHeights.push_back(point.z);
+        }
+    }
+    
+    if (nearbyHeights.size() < 10) {
+        // 扩大搜索范围
+        nearbyHeights.clear();
+        for (const auto& point : cloud->points) {
+            double dx = point.x - centerX;
+            double dy = point.y - centerY;
+            double distance = std::sqrt(dx * dx + dy * dy);
+            
+            if (distance <= 0.5) { // 50厘米半径
+                nearbyHeights.push_back(point.z);
+            }
+        }
+    }
+    
+    if (nearbyHeights.empty()) {
+        return 0.0;
+    }
+    
+    // 使用75%分位数作为局部表面高度（避免凹坑影响）
+    std::sort(nearbyHeights.begin(), nearbyHeights.end());
+    size_t index = static_cast<size_t>(nearbyHeights.size() * 0.75);
+    return nearbyHeights[index];
+}
+
 double PotholeDetector::calculateSurfaceRoughness(PCLPointCloud::Ptr cloud) {
     if (cloud->size() < 3) return 0.0;
     
@@ -582,6 +782,158 @@ double PotholeDetector::calculateSurfaceRoughness(PCLPointCloud::Ptr cloud) {
     return std::sqrt(totalVariation / count);
 }
 
+double PotholeDetector::calculateStatisticalSurfaceHeight(PCLPointCloud::Ptr cloud) {
+    if (cloud->empty()) {
+        return 0.0;
+    }
+    
+    // ! 修复：这个函数现在只作为后备方案，实际应该很少被调用
+    // 收集所有Z值
+    std::vector<float> zValues;
+    zValues.reserve(cloud->size());
+    for (const auto& point : cloud->points) {
+        zValues.push_back(point.z);
+    }
+    
+    std::sort(zValues.begin(), zValues.end());
+    
+    // 使用75%分位数作为保守的表面高度估计
+    size_t index = static_cast<size_t>(zValues.size() * 0.75);
+    return static_cast<double>(zValues[index]);
+}
+
+bool PotholeDetector::fitPlaneToPoints(const std::vector<PointT>& points, double& a, double& b, double& c) {
+    if (points.size() < 3) {
+        return false;
+    }
+    
+    // 使用最小二乘法拟合平面 z = ax + by + c
+    // 设置线性方程组 A * [a b c]^T = B
+    
+    double sumX = 0.0, sumY = 0.0, sumZ = 0.0;
+    double sumXX = 0.0, sumYY = 0.0, sumXY = 0.0;
+    double sumXZ = 0.0, sumYZ = 0.0;
+    size_t n = points.size();
+    
+    for (const auto& point : points) {
+        double px = static_cast<double>(point.x);
+        double py = static_cast<double>(point.y);
+        double pz = static_cast<double>(point.z);
+        
+        sumX += px;
+        sumY += py;
+        sumZ += pz;
+        sumXX += px * px;
+        sumYY += py * py;
+        sumXY += px * py;
+        sumXZ += px * pz;
+        sumYZ += py * pz;
+    }
+    
+    // 构建正规方程矩阵
+    double A[3][3] = {
+        {sumXX, sumXY, sumX},
+        {sumXY, sumYY, sumY},
+        {sumX,  sumY,  static_cast<double>(n)}
+    };
+    
+    double B[3] = {sumXZ, sumYZ, sumZ};
+    
+    // 解线性方程组（简化的高斯消元法）
+    double det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1])
+               - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0])
+               + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+    
+    if (std::abs(det) < 1e-10) {
+        return false; // 矩阵接近奇异
+    }
+    
+    // 使用克拉默法则求解
+    a = (B[0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1])
+       - A[0][1] * (B[1] * A[2][2] - A[1][2] * B[2])
+       + A[0][2] * (B[1] * A[2][1] - A[1][1] * B[2])) / det;
+       
+    b = (A[0][0] * (B[1] * A[2][2] - A[1][2] * B[2])
+       - B[0] * (A[1][0] * A[2][2] - A[1][2] * A[2][0])
+       + A[0][2] * (A[1][0] * B[2] - B[1] * A[2][0])) / det;
+       
+    c = (A[0][0] * (A[1][1] * B[2] - B[1] * A[2][1])
+       - A[0][1] * (A[1][0] * B[2] - B[1] * A[2][0])
+       + B[0] * (A[1][0] * A[2][1] - A[1][1] * A[2][0])) / det;
+    
+    return true;
+}
+
+double PotholeDetector::fitPlaneAndGetHeight(const std::vector<PointT>& points, double x, double y) {
+    if (points.size() < 3) {
+        return 0.0;
+    }
+    
+    // 最小二乘法拟合平面 z = ax + by + c
+    // 设置线性方程组 A * [a b c]^T = b
+    
+    double sumX = 0.0, sumY = 0.0, sumZ = 0.0;
+    double sumXX = 0.0, sumYY = 0.0, sumXY = 0.0;
+    double sumXZ = 0.0, sumYZ = 0.0;
+    size_t n = points.size();
+    
+    for (const auto& point : points) {
+        double px = static_cast<double>(point.x);
+        double py = static_cast<double>(point.y);
+        double pz = static_cast<double>(point.z);
+        
+        sumX += px;
+        sumY += py;
+        sumZ += pz;
+        sumXX += px * px;
+        sumYY += py * py;
+        sumXY += px * py;
+        sumXZ += px * pz;
+        sumYZ += py * pz;
+    }
+    
+    // 构建正规方程矩阵
+    double A[3][3] = {
+        {sumXX, sumXY, sumX},
+        {sumXY, sumYY, sumY},
+        {sumX,  sumY,  static_cast<double>(n)}
+    };
+    
+    double B[3] = {sumXZ, sumYZ, sumZ};
+    
+    // 解线性方程组（简化的高斯消元法）
+    // 如果矩阵接近奇异，使用统计方法作为后备
+    double det = A[0][0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1])
+               - A[0][1] * (A[1][0] * A[2][2] - A[1][2] * A[2][0])
+               + A[0][2] * (A[1][0] * A[2][1] - A[1][1] * A[2][0]);
+    
+    if (std::abs(det) < 1e-10) {
+        // 矩阵接近奇异，使用中位数作为平面高度
+        std::vector<double> zValues;
+        for (const auto& point : points) {
+            zValues.push_back(static_cast<double>(point.z));
+        }
+        std::sort(zValues.begin(), zValues.end());
+        return zValues[zValues.size() / 2];
+    }
+    
+    // 使用克拉默法则求解
+    double a = (B[0] * (A[1][1] * A[2][2] - A[1][2] * A[2][1])
+              - A[0][1] * (B[1] * A[2][2] - A[1][2] * B[2])
+              + A[0][2] * (B[1] * A[2][1] - A[1][1] * B[2])) / det;
+              
+    double b = (A[0][0] * (B[1] * A[2][2] - A[1][2] * B[2])
+              - B[0] * (A[1][0] * A[2][2] - A[1][2] * A[2][0])
+              + A[0][2] * (A[1][0] * B[2] - B[1] * A[2][0])) / det;
+              
+    double c = (A[0][0] * (A[1][1] * B[2] - B[1] * A[2][1])
+              - A[0][1] * (A[1][0] * B[2] - B[1] * A[2][0])
+              + B[0] * (A[1][0] * A[2][1] - A[1][1] * A[2][0])) / det;
+    
+    // 计算平面在给定点(x,y)处的高度
+    return a * x + b * y + c;
+}
+
 void PotholeDetector::reportProgress(const std::string& stage, int progress, const std::string& message) {
     if (progressCallback_) {
         progressCallback_(stage, progress, message);
@@ -595,17 +947,19 @@ bool PotholeDetector::checkCancellation() {
 // 辅助函数实现
 AnalysisParams createDefaultAnalysisParams() {
     AnalysisParams params;
-    params.zThresholdPercentile = 20.0;
-    params.minPotholeArea = 0.001;  // 1平方厘米
-    params.minPotholePoints = 10;
-    params.clusteringRadius = 0.05; // 5厘米
-    params.useRANSACFitting = true;
-    params.ransacThreshold = 0.01;  // 1厘米
+    
+    // ! 重大修复：根据实际数据特征调整参数（厘米级地形变化，不是毫米级凹坑）
+    params.zThresholdPercentile = 15.0;  // 提高到15%，确保能检测到凹坑
+    params.minPotholeArea = 0.0001;      // 降低到0.1平方厘米，更容易检测
+    params.minPotholePoints = 3;         // 最小点数要求
+    params.clusteringRadius = 0.05;      // ! 调整为5cm聚类半径，适应点密度（36mm间距）
+    params.useRANSACFitting = false;     // 使用改进的局部平面拟合方法
+    params.ransacThreshold = 0.01;       // ! 调整为1cm阈值，适应实际地形变化
     params.ransacMaxIterations = 1000;
     params.useConvexHull = true;
     params.enableMultipleDetection = true;
-    params.noiseFilterRadius = 0.02; // 2厘米
-    params.minConfidenceThreshold = 0.3;
+    params.noiseFilterRadius = 0.02;     // ! 调整为2cm噪声过滤半径
+    params.minConfidenceThreshold = 0.05; // 更低的置信度要求
     params.enableQualityFiltering = true;
     
     // 新增的中央区域过滤参数
@@ -644,22 +998,22 @@ AnalysisParams createCentralMaxPotholeParams() {
     params.centralRegionRatio = 0.8;           // 扩大到中央80%区域，获取更多数据
     params.detectSingleMaxPothole = true;     // 只检测最大单个凹坑
     
-    // * 优化参数设置以提高单坑检测精度和深度分析能力
+    // ! 针对毫米级检测的关键参数优化
     params.enableMultipleDetection = false;   // 关闭多凹坑检测模式
-    params.minPotholePoints = 3;              // 进一步降低最小点数要求，提高灵敏度
-    params.minPotholeArea = 0.0005;           // 更小的最小面积阈值（0.5平方厘米）
-    params.minConfidenceThreshold = 0.15;     // 更低的置信度要求，提高检测率
+    params.minPotholePoints = 3;              // 最小点数要求
+    params.minPotholeArea = 0.00001;          // ! 极小的最小面积阈值（0.1平方厘米）
+    params.minConfidenceThreshold = 0.05;     // ! 极低的置信度要求，最大化检测率
     
-    // * 使用Z阈值方法进行更快速的深度分析
-    params.useRANSACFitting = false;          // 改为Z阈值方法，更适合深度分析
-    params.zThresholdPercentile = 15.0;       // 更敏感的Z阈值（15%分位数）
+    // ! 使用适中的Z阈值方法
+    params.useRANSACFitting = false;          // 使用Z阈值方法
+    params.zThresholdPercentile = 15.0;       // ! 调整为15%分位数，确保能检测到凹坑
     
-    // * 聚类参数优化
-    params.clusteringRadius = 0.04;           // 稍大的聚类半径，聚合更多相关点
+    // ! 厘米级聚类参数
+    params.clusteringRadius = 0.05;           // ! 5厘米聚类半径，适应点密度
     
-    // * 启用质量过滤确保结果可靠性
-    params.enableQualityFiltering = true;
-    params.noiseFilterRadius = 0.015;         // 适度的噪声过滤
+    // ! 最小化噪声过滤，保留更多细节
+    params.enableQualityFiltering = false;    // ! 暂时关闭质量过滤
+    params.noiseFilterRadius = 0.02;          // ! 2厘米噪声过滤
     
     return params;
 }

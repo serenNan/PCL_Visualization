@@ -790,7 +790,7 @@ void MainWindow::onAnalysisResultUpdated(const analysis::AnalysisResult& result)
             panelResult.area = firstPothole.area * 1e6;           // m² -> mm²
             panelResult.width = firstPothole.width * 1000.0;      // m -> mm
             panelResult.length = firstPothole.length * 1000.0;    // m -> mm
-            panelResult.maxDepth = firstPothole.maxDepth * 1000.0; // m -> mm
+            panelResult.maxDepth = firstPothole.maxDepth; // 已经是mm单位，不需要转换
             panelResult.pointCount = firstPothole.pointCount;
             panelResult.isValid = result.analysisSuccessful;
         } else {
