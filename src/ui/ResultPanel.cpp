@@ -65,9 +65,13 @@ ResultPanel::ResultPanel(QWidget *parent)
 ResultPanel::~ResultPanel() = default;
 
 void ResultPanel::updateResults(const PotholeResult& result) {
-    
+
     m_currentResult = result;
-    
+
+    // 调试信息：输出接收到的深度值
+    qDebug() << "[DEBUG] ResultPanel接收到maxDepth:" << result.maxDepth << "mm"
+             << "isValid:" << result.isValid;
+
     // 更新所有结果显示 - 全部使用5位小数
     updateResultDisplay(m_volumeEdit, result.volume, "mm³", 5);
     updateResultDisplay(m_areaEdit, result.area, "mm²", 5);
@@ -477,8 +481,17 @@ void ResultPanel::updateResultDisplay(QLineEdit* edit, double value, const QStri
     if (!edit) {
         return;
     }
-    
-    if (std::isnan(value) || std::isinf(value) || value == 0.0) {
+
+    // 调试信息：特别关注深度字段
+    if (edit == m_maxDepthEdit) {
+        qDebug() << "[DEBUG] updateResultDisplay maxDepthEdit: value=" << value
+                 << "isnan=" << std::isnan(value)
+                 << "isinf=" << std::isinf(value)
+                 << "abs<1e-8=" << (std::abs(value) < 1e-8);
+    }
+
+    // 使用更合理的阈值，避免将有效的小数值误判为无效
+    if (std::isnan(value) || std::isinf(value) || std::abs(value) < 1e-8) {
         edit->setText("--");
         edit->setStyleSheet("QLineEdit { color: #888888; }");
     } else {

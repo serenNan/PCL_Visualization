@@ -541,9 +541,14 @@ PotholeInfo PotholeDetector::calculatePotholeGeometry(PCLPointCloud::Ptr cloud,
         }
     }
     
-    // 检查是否为真正的凹坑（点在平面下方）
+    // 检查是否为真正的凹坑（放宽判断条件，允许小的高度差）
     double deepestPlaneZ = planeA * deepestPoint.x + planeB * deepestPoint.y + planeC;
-    if (deepestPoint.z < deepestPlaneZ) {
+    double heightDiff = deepestPoint.z - deepestPlaneZ;
+    std::cout << "[DEBUG] 深度判断: deepestPoint.z=" << deepestPoint.z << "mm, deepestPlaneZ=" << deepestPlaneZ << "mm" << std::endl;
+    std::cout << "[DEBUG] 高度差=" << heightDiff << "mm" << std::endl;
+
+    // 放宽条件：允许最多0.5mm的高度差异（原来只接受严格的点在平面下方）
+    if (heightDiff <= 0.5) {
         // 尝试不同的深度计算方法
         double method1 = maxDistance;                    // 当前方法：绝对距离
         double method2 = deepestPlaneZ - deepestPoint.z; // 有向距离 
@@ -640,19 +645,24 @@ PotholeInfo PotholeDetector::calculatePotholeGeometry(PCLPointCloud::Ptr cloud,
         std::cout << "[DEBUG] 注意: 当前cloud有" << cloud->size() << "个点(预处理后)，不是原始740个点" << std::endl;
         std::cout << "[DEBUG] =================================================" << std::endl;
     } else {
-        // 点在平面上方，不算凹坑
+        // 高度差异过大，不算凹坑
+        std::cout << "[DEBUG] 高度差异过大(" << heightDiff << "mm > 0.5mm)，不算凹坑" << std::endl;
         pothole.maxDepth = 0.0;
     }
     
     pothole.depth = 0.0;  // 不计算平均深度
     
-    // ! 深度范围验证（0.01-100mm，放宽限制）
-    if (pothole.maxDepth < 0.01) {
+    // ! 深度范围验证（0.001-100mm，进一步放宽下限以支持小深度）
+    std::cout << "[DEBUG] 深度范围验证前: pothole.maxDepth = " << pothole.maxDepth << "mm" << std::endl;
+    if (pothole.maxDepth < 0.001) {
+        std::cout << "[DEBUG] 深度太小，设置为0: " << pothole.maxDepth << " < 0.001" << std::endl;
         pothole.maxDepth = 0.0;  // 过小的深度认为是噪声
     } else if (pothole.maxDepth > 100.0) {
+        std::cout << "[DEBUG] 深度太大，设置为100: " << pothole.maxDepth << " > 100.0" << std::endl;
         // ! 放宽最大深度限制为100mm
         pothole.maxDepth = 100.0;
     }
+    std::cout << "[DEBUG] 深度范围验证后: pothole.maxDepth = " << pothole.maxDepth << "mm" << std::endl;
     
     // 设置最深点位置
     if (deepestPointIndex < pothole.potholePoints->size()) {
