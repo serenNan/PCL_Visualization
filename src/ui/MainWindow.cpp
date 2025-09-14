@@ -785,12 +785,12 @@ void MainWindow::onAnalysisResultUpdated(const analysis::AnalysisResult& result)
         ui::PotholeResult panelResult;
         if (!result.potholes.empty()) {
             const auto& firstPothole = result.potholes[0];
-            // * 重要：单位转换 - analysis模块使用米(m)，UI模块使用毫米(mm)
-            panelResult.volume = firstPothole.volume * 1e9;       // m³ -> mm³
-            panelResult.area = firstPothole.area * 1e6;           // m² -> mm²
-            panelResult.width = firstPothole.width * 1000.0;      // m -> mm
-            panelResult.length = firstPothole.length * 1000.0;    // m -> mm
-            panelResult.maxDepth = firstPothole.maxDepth; // 已经是mm单位，不需要转换
+            // * 修正：analysis模块现在直接输出mm单位，不需要转换
+            panelResult.volume = firstPothole.volume;       // 已经是mm³
+            panelResult.area = firstPothole.area;           // 已经是mm²
+            panelResult.width = firstPothole.width;         // 已经是mm
+            panelResult.length = firstPothole.length;       // 已经是mm
+            panelResult.maxDepth = firstPothole.maxDepth;   // 已经是mm
             panelResult.pointCount = firstPothole.pointCount;
             panelResult.isValid = result.analysisSuccessful;
         } else {

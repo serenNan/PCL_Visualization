@@ -68,11 +68,11 @@ void ResultPanel::updateResults(const PotholeResult& result) {
     
     m_currentResult = result;
     
-    // 更新所有结果显示
-    updateResultDisplay(m_volumeEdit, result.volume, "mm³");
-    updateResultDisplay(m_areaEdit, result.area, "mm²");
-    updateResultDisplay(m_widthEdit, result.width, "mm");
-    updateResultDisplay(m_lengthEdit, result.length, "mm");
+    // 更新所有结果显示 - 全部使用5位小数
+    updateResultDisplay(m_volumeEdit, result.volume, "mm³", 5);
+    updateResultDisplay(m_areaEdit, result.area, "mm²", 5);
+    updateResultDisplay(m_widthEdit, result.width, "mm", 5);
+    updateResultDisplay(m_lengthEdit, result.length, "mm", 5);
     updateResultDisplay(m_maxDepthEdit, result.maxDepth, "mm", 5);
     
     // 更新有效性
@@ -121,7 +121,7 @@ void ResultPanel::setPointCloudInfo(std::shared_ptr<core::PointCloud> pointCloud
     
     // 更新边界信息
     auto bounds = pointCloud->getBounds();
-    QString boundsText = QString("X: [%.2f, %.2f]\nY: [%.2f, %.2f]\nZ: [%.2f, %.2f]")
+    QString boundsText = QString("X: [%.5f, %.5f]\nY: [%.5f, %.5f]\nZ: [%.5f, %.5f]")
         .arg(bounds.minPoint.x).arg(bounds.maxPoint.x)
         .arg(bounds.minPoint.y).arg(bounds.maxPoint.y)
         .arg(bounds.minPoint.z).arg(bounds.maxPoint.z);
@@ -231,11 +231,11 @@ void ResultPanel::onCopyToClipboard() {
         "点云数量: %8"
     ).arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"))
      .arg(m_currentPointCloud ? QString::fromStdString(m_currentPointCloud->getFilename()) : "无")
-     .arg(m_currentResult.maxDepth, 0, 'f', 2)
-     .arg(m_currentResult.volume, 0, 'f', 2)
-     .arg(m_currentResult.area, 0, 'f', 2)
-     .arg(m_currentResult.width, 0, 'f', 2)
-     .arg(m_currentResult.length, 0, 'f', 2)
+     .arg(m_currentResult.maxDepth, 0, 'f', 5)
+     .arg(m_currentResult.volume, 0, 'f', 5)
+     .arg(m_currentResult.area, 0, 'f', 5)
+     .arg(m_currentResult.width, 0, 'f', 5)
+     .arg(m_currentResult.length, 0, 'f', 5)
      .arg(m_currentResult.pointCount);
     
     // 复制到剪贴板
@@ -556,10 +556,10 @@ bool ResultPanel::exportAsCsv(const QString& filename) {
     stream << "Filename," << (m_currentPointCloud ? QString::fromStdString(m_currentPointCloud->getFilename()) : "") << ",\n";
     stream << "Point Count," << (m_currentPointCloud ? m_currentPointCloud->size() : 0) << ",\n";
     stream << "Max Depth," << QString::number(m_currentResult.maxDepth, 'f', 5) << ",mm\n";
-    stream << "Volume," << m_currentResult.volume << ",mm³\n";
-    stream << "Area," << m_currentResult.area << ",mm²\n";
-    stream << "Width," << m_currentResult.width << ",mm\n";
-    stream << "Length," << m_currentResult.length << ",mm\n";
+    stream << "Volume," << QString::number(m_currentResult.volume, 'f', 5) << ",mm³\n";
+    stream << "Area," << QString::number(m_currentResult.area, 'f', 5) << ",mm²\n";
+    stream << "Width," << QString::number(m_currentResult.width, 'f', 5) << ",mm\n";
+    stream << "Length," << QString::number(m_currentResult.length, 'f', 5) << ",mm\n";
     stream << "Valid," << (m_currentResult.isValid ? "true" : "false") << ",\n";
     
     return true;
@@ -582,10 +582,10 @@ bool ResultPanel::exportAsText(const QString& filename) {
     stream << "测量结果:\n";
     stream << "---------\n";
     stream << "最大深度: " << QString::number(m_currentResult.maxDepth, 'f', 5) << " mm\n";
-    stream << "体积: " << m_currentResult.volume << " mm³\n";
-    stream << "面积: " << m_currentResult.area << " mm²\n";
-    stream << "宽度: " << m_currentResult.width << " mm\n";
-    stream << "长度: " << m_currentResult.length << " mm\n";
+    stream << "体积: " << QString::number(m_currentResult.volume, 'f', 5) << " mm³\n";
+    stream << "面积: " << QString::number(m_currentResult.area, 'f', 5) << " mm²\n";
+    stream << "宽度: " << QString::number(m_currentResult.width, 'f', 5) << " mm\n";
+    stream << "长度: " << QString::number(m_currentResult.length, 'f', 5) << " mm\n";
     stream << "结果有效性: " << (m_currentResult.isValid ? "有效" : "无效") << "\n\n";
     
     if (m_currentPointCloud) {
