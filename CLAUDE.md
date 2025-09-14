@@ -131,3 +131,4 @@ export DISPLAY=:0
 - WSL 环境需要先运行 `vtk_env` 加载图形环境
 - 显示问题使用 `export DISPLAY=:0` 解决
 - 不要手动编译，用户会自行处理构建过程
+- 每次都要积极调用合适的agents，cpp-pro是必要的

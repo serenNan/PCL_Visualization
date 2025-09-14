@@ -55,3 +55,9 @@ Z 范围: [12.2084, 12.5439] (跨度: 0.335485)
 ===============
 点云可视化器已启动。按 'q' 退出，'h' 显示帮助信息。
 ```
+
+### 动态库丢失问题
+
+```cpp
+export LD_LIBRARY_PATH=/usr/local/Qt/Qt6.5.3/6.5.3/gcc_64/lib:/usr/local/vtk/lib:$LD_LIBRARY_PATH
+```
