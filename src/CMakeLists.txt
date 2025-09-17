@@ -181,6 +181,18 @@ install(TARGETS pcl_viz_core pcl_viz_visualization pcl_viz_analysis pcl_viz_ui
     ARCHIVE DESTINATION lib
 )
 
+# 轻量级控制台分析工具（便于离线校准指标）
+add_executable(pcl_analyze_cli analyze_cli.cpp)
+target_link_libraries(pcl_analyze_cli
+    pcl_viz_core
+    pcl_viz_analysis
+    ${PCL_LIBRARIES}
+    Threads::Threads
+)
+set_target_properties(pcl_analyze_cli PROPERTIES
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+)
+
 # 打印配置信息
 message(STATUS "PCL_Visualization Configuration:")
 message(STATUS "  Build Type: ${CMAKE_BUILD_TYPE}")

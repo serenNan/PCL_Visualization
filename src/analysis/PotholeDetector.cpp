@@ -5,6 +5,9 @@
 #include <thread>
 #include <iostream>
 #include <iomanip>
+#include <fstream>
+#include <cstdlib>
+#include <limits>
 
 namespace pcl_viz {
 namespace analysis {
@@ -669,39 +672,190 @@ PotholeInfo PotholeDetector::calculatePotholeGeometry(PCLPointCloud::Ptr cloud,
         pothole.deepestPoint = pothole.potholePoints->points[deepestPointIndex];
     }
     
-    // 计算投影面积
-    pothole.area = calculateProjectionArea(pothole.potholePoints);
-    
-    // 调试面积计算 - 保留5位小数
-    std::cout << std::fixed << std::setprecision(5);
-    std::cout << "[DEBUG] 凹坑面积计算:" << std::endl;
-    std::cout << "[DEBUG] - 凹坑点数: " << pothole.potholePoints->size() << std::endl;
-    if (pothole.potholePoints->size() > 0) {
-        PointT minPt, maxPt;
-        pcl::getMinMax3D(*pothole.potholePoints, minPt, maxPt);
-        double width = maxPt.x - minPt.x;
-        double length = maxPt.y - minPt.y;
-        std::cout << "[DEBUG] - X范围: " << minPt.x << " 到 " << maxPt.x << " (宽度: " << width << "mm)" << std::endl;
-        std::cout << "[DEBUG] - Y范围: " << minPt.y << " 到 " << maxPt.y << " (长度: " << length << "mm)" << std::endl;
-        std::cout << "[DEBUG] - 椭圆面积: " << pothole.area << " mm²" << std::endl;
-        std::cout << "[DEBUG] - 转换为m²: " << (pothole.area / 1000000.0) << " m²" << std::endl;
-    }
-    
-    // 计算体积 - 使用拟合平面作为参考
+    // 计算体积与面积所需的表面高度
     double surfaceZ = 0.0;
     if (planeFitted) {
-        // 使用凹坑中心在拟合平面上的高度
         surfaceZ = planeA * pothole.center.x + planeB * pothole.center.y + planeC;
     } else {
-        // 后备方案
         double totalZ = 0.0;
         for (const auto& point : cloud->points) {
             totalZ += point.z;
         }
         surfaceZ = totalZ / cloud->size();
     }
-    pothole.volume = calculateVolume(pothole.potholePoints, surfaceZ);
-    
+
+    auto computeCoreGeometry = [&](double& outArea, double& outVolume) -> bool {
+        if (!planeFitted) {
+            return false;
+        }
+
+        struct Point2D {
+            double x;
+            double y;
+        };
+
+        std::vector<Point2D> projectedPoints;
+        std::vector<double> depthValues;
+        projectedPoints.reserve(pothole.potholePoints->size());
+        depthValues.reserve(pothole.potholePoints->size());
+
+        double planeMaxDepth = 0.0;
+        for (const auto& point : pothole.potholePoints->points) {
+            double planeZ = planeA * point.x + planeB * point.y + planeC;
+            double depth = planeZ - point.z;
+            if (depth <= 0.0) {
+                continue;
+            }
+            projectedPoints.push_back({point.x, point.y});
+            depthValues.push_back(depth);
+            planeMaxDepth = std::max(planeMaxDepth, depth);
+        }
+
+        if (depthValues.size() < 3 || planeMaxDepth <= 0.0) {
+            return false;
+        }
+
+        const double coreThreshold = planeMaxDepth * params_.coreDepthRatio;
+        std::vector<Point2D> corePoints;
+        std::vector<double> coreDepths;
+        corePoints.reserve(projectedPoints.size());
+        coreDepths.reserve(projectedPoints.size());
+
+        for (size_t i = 0; i < depthValues.size(); ++i) {
+            if (depthValues[i] >= coreThreshold) {
+                corePoints.push_back(projectedPoints[i]);
+                coreDepths.push_back(depthValues[i]);
+            }
+        }
+
+        if (corePoints.size() < 3) {
+            return false;
+        }
+
+        auto sorter = [](const Point2D& lhs, const Point2D& rhs) {
+            if (lhs.x < rhs.x) return true;
+            if (lhs.x > rhs.x) return false;
+            return lhs.y < rhs.y;
+        };
+
+        std::sort(corePoints.begin(), corePoints.end(), sorter);
+        corePoints.erase(std::unique(corePoints.begin(), corePoints.end(), [](const Point2D& a, const Point2D& b) {
+            constexpr double eps = 1e-6;
+            return std::abs(a.x - b.x) < eps && std::abs(a.y - b.y) < eps;
+        }), corePoints.end());
+
+        if (corePoints.size() < 3) {
+            return false;
+        }
+
+        auto cross = [](const Point2D& o, const Point2D& a, const Point2D& b) {
+            return (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+        };
+
+        std::vector<Point2D> hull;
+        hull.reserve(corePoints.size() * 2);
+
+        for (const auto& pt : corePoints) {
+            while (hull.size() >= 2 && cross(hull[hull.size() - 2], hull.back(), pt) <= 0.0) {
+                hull.pop_back();
+            }
+            hull.push_back(pt);
+        }
+
+        size_t lowerSize = hull.size();
+        for (auto it = corePoints.rbegin() + 1; it != corePoints.rend(); ++it) {
+            while (hull.size() > lowerSize && cross(hull[hull.size() - 2], hull.back(), *it) <= 0.0) {
+                hull.pop_back();
+            }
+            hull.push_back(*it);
+        }
+
+        if (hull.size() < 3) {
+            return false;
+        }
+
+        hull.pop_back(); // remove duplicate start point
+
+        double baseArea = 0.0;
+        double perimeter = 0.0;
+        for (size_t i = 0; i < hull.size(); ++i) {
+            const auto& p1 = hull[i];
+            const auto& p2 = hull[(i + 1) % hull.size()];
+            baseArea += p1.x * p2.y - p2.x * p1.y;
+            perimeter += std::hypot(p2.x - p1.x, p2.y - p1.y);
+        }
+        baseArea = std::abs(baseArea) * 0.5;
+
+        if (baseArea <= 0.0) {
+            return false;
+        }
+
+        auto averageNearestDistance = [](const std::vector<Point2D>& pts) {
+            if (pts.size() < 2) {
+                return 0.0;
+            }
+            double total = 0.0;
+            for (size_t i = 0; i < pts.size(); ++i) {
+                double best = std::numeric_limits<double>::max();
+                for (size_t j = 0; j < pts.size(); ++j) {
+                    if (i == j) continue;
+                    double dx = pts[i].x - pts[j].x;
+                    double dy = pts[i].y - pts[j].y;
+                    double dist = std::hypot(dx, dy);
+                    if (dist < best) {
+                        best = dist;
+                    }
+                }
+                if (best < std::numeric_limits<double>::max()) {
+                    total += best;
+                }
+            }
+            return total / static_cast<double>(pts.size());
+        };
+
+        double avgNearest = averageNearestDistance(corePoints);
+        double dilationRadius = avgNearest * params_.areaDilationFactor;
+        double dilatedArea = baseArea + perimeter * dilationRadius + M_PI * dilationRadius * dilationRadius;
+
+        double avgDepth = std::accumulate(coreDepths.begin(), coreDepths.end(), 0.0) /
+                          static_cast<double>(coreDepths.size());
+        double effectiveDepth = avgDepth - planeMaxDepth * params_.volumeDepthOffsetRatio;
+        if (effectiveDepth < 0.0) {
+            effectiveDepth = 0.0;
+        }
+
+        outArea = dilatedArea;
+        outVolume = dilatedArea * effectiveDepth;
+
+        std::cout << std::fixed << std::setprecision(5);
+        std::cout << "[DEBUG] 核心区域面积计算:" << std::endl;
+        std::cout << "[DEBUG] - 核心点数: " << corePoints.size() << std::endl;
+        std::cout << "[DEBUG] - 基础凸包面积: " << baseArea << " mm²" << std::endl;
+        std::cout << "[DEBUG] - 平均最近邻距: " << avgNearest << " mm" << std::endl;
+        std::cout << "[DEBUG] - 膨胀半径: " << dilationRadius << " mm" << std::endl;
+        std::cout << "[DEBUG] - 膨胀后面积: " << dilatedArea << " mm²" << std::endl;
+        std::cout << "[DEBUG] - 平均深度: " << avgDepth << " mm" << std::endl;
+        std::cout << "[DEBUG] - 平面最大深度: " << planeMaxDepth << " mm" << std::endl;
+        std::cout << "[DEBUG] - 有效深度: " << effectiveDepth << " mm" << std::endl;
+
+        return true;
+    };
+
+    if (!computeCoreGeometry(pothole.area, pothole.volume)) {
+        pothole.area = calculateProjectionArea(pothole.potholePoints);
+        pothole.volume = calculateVolume(pothole.potholePoints, surfaceZ);
+    }
+
+    if (const char* dumpPath = std::getenv("PCL_DUMP_PIT")) {
+        std::ofstream dumpFile(dumpPath);
+        if (dumpFile.is_open()) {
+            dumpFile << std::fixed << std::setprecision(6);
+            for (const auto& pt : pothole.potholePoints->points) {
+                dumpFile << pt.x << ',' << pt.y << ',' << pt.z << '\n';
+            }
+        }
+    }
+
     return pothole;
 }
 
@@ -1135,6 +1289,9 @@ AnalysisParams createDefaultAnalysisParams() {
     params.noiseFilterRadius = 0.02;     // ! 调整为2cm噪声过滤半径
     params.minConfidenceThreshold = 0.05; // 更低的置信度要求
     params.enableQualityFiltering = true;
+    params.coreDepthRatio = 0.875;
+    params.areaDilationFactor = 0.083;
+    params.volumeDepthOffsetRatio = 0.37;
     
     // 新增的中央区域过滤参数
     params.enableCentralRegionFilter = false;  // 默认关闭

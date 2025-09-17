@@ -87,6 +87,9 @@ struct AnalysisParams {
     bool useConvexHull = true;            ///< 使用凸包计算面积
     bool enableMultipleDetection = true;  ///< 启用多凹坑检测
     double noiseFilterRadius = 0.02;      ///< 噪声滤波半径 (m)
+    double coreDepthRatio = 0.875;        ///< 核心区域深度阈值占最大深度的比例
+    double areaDilationFactor = 0.083;    ///< 核心区域膨胀半径占平均点距的比例
+    double volumeDepthOffsetRatio = 0.37; ///< 体积计算时扣除的深度占最大深度比例
     
     // 质量控制参数
     double minConfidenceThreshold = 0.3;  ///< 最小置信度阈值
