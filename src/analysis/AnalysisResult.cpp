@@ -63,8 +63,7 @@ std::string AnalysisResult::toJson(bool prettyFormat) const {
         json << indent << indent << indent << "\"maxDepth\": " << std::fixed << std::setprecision(6) << pothole.maxDepth << "," << newline;
         json << indent << indent << indent << "\"volume\": " << std::fixed << std::setprecision(8) << pothole.volume << "," << newline;
         json << indent << indent << indent << "\"area\": " << std::fixed << std::setprecision(6) << pothole.area << "," << newline;
-        json << indent << indent << indent << "\"width\": " << std::fixed << std::setprecision(6) << pothole.width << "," << newline;
-        json << indent << indent << indent << "\"length\": " << std::fixed << std::setprecision(6) << pothole.length << "," << newline;
+        json << indent << indent << indent << "\"diameter\": " << std::fixed << std::setprecision(6) << pothole.diameter << "," << newline;
         json << indent << indent << indent << "\"pointCount\": " << pothole.pointCount << "," << newline;
         json << indent << indent << indent << "\"confidence\": " << std::fixed << std::setprecision(3) << pothole.confidence << newline;
         json << indent << indent << "}";
@@ -85,7 +84,7 @@ std::string AnalysisResult::toCsv() const {
     std::ostringstream csv;
     
     // CSV头部
-    csv << "ID,CenterX,CenterY,CenterZ,Depth,MaxDepth,Volume,Area,Width,Length,PointCount,Confidence,AspectRatio,DepthUniformity\n";
+    csv << "ID,CenterX,CenterY,CenterZ,Depth,MaxDepth,Volume,Area,Diameter,PointCount,Confidence,EquivalentRadius,DepthUniformity\n";
     
     // 数据行
     for (size_t i = 0; i < potholes.size(); ++i) {
@@ -98,11 +97,10 @@ std::string AnalysisResult::toCsv() const {
             << std::fixed << std::setprecision(6) << pothole.maxDepth << ","
             << std::fixed << std::setprecision(8) << pothole.volume << ","
             << std::fixed << std::setprecision(6) << pothole.area << ","
-            << std::fixed << std::setprecision(6) << pothole.width << ","
-            << std::fixed << std::setprecision(6) << pothole.length << ","
+            << std::fixed << std::setprecision(6) << pothole.diameter << ","
             << pothole.pointCount << ","
             << std::fixed << std::setprecision(3) << pothole.confidence << ","
-            << std::fixed << std::setprecision(3) << pothole.getAspectRatio() << ","
+            << std::fixed << std::setprecision(3) << pothole.getEquivalentRadius() << ","
             << std::fixed << std::setprecision(3) << pothole.getDepthUniformity() << "\n";
     }
     
@@ -161,15 +159,14 @@ std::string AnalysisResult::toTextReport() const {
                    << std::fixed << std::setprecision(4) << pothole.center.x << ", "
                    << std::fixed << std::setprecision(4) << pothole.center.y << ", "
                    << std::fixed << std::setprecision(4) << pothole.center.z << ")\n";
-            report << "  尺寸: " << std::fixed << std::setprecision(4) << pothole.length 
-                   << " × " << std::fixed << std::setprecision(4) << pothole.width << " m\n";
+            report << "  直径: " << std::fixed << std::setprecision(4) << pothole.diameter << " m\n";
             report << "  深度: 平均 " << std::fixed << std::setprecision(4) << pothole.depth 
                    << " m, 最大 " << std::fixed << std::setprecision(4) << pothole.maxDepth << " m\n";
             report << "  面积: " << std::fixed << std::setprecision(6) << pothole.area << " m²\n";
             report << "  体积: " << std::fixed << std::setprecision(8) << pothole.volume << " m³\n";
             report << "  点数: " << pothole.pointCount << "\n";
             report << "  置信度: " << std::fixed << std::setprecision(1) << (pothole.confidence * 100) << "%\n";
-            report << "  长宽比: " << std::fixed << std::setprecision(2) << pothole.getAspectRatio() << "\n";
+            report << "  等效半径: " << std::fixed << std::setprecision(4) << pothole.getEquivalentRadius() << " m\n";
             report << "  深度均匀性: " << std::fixed << std::setprecision(2) << pothole.getDepthUniformity() << "\n";
             if (i < potholes.size() - 1) report << "\n";
         }

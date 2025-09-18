@@ -788,8 +788,7 @@ void MainWindow::onAnalysisResultUpdated(const analysis::AnalysisResult& result)
             // * 修正：analysis模块现在直接输出mm单位，不需要转换
             panelResult.volume = firstPothole.volume;       // 已经是mm³
             panelResult.area = firstPothole.area;           // 已经是mm²
-            panelResult.width = firstPothole.width;         // 已经是mm
-            panelResult.length = firstPothole.length;       // 已经是mm
+            panelResult.diameter = firstPothole.diameter;   // 已经是mm
             panelResult.maxDepth = firstPothole.maxDepth;   // 已经是mm
             panelResult.pointCount = firstPothole.pointCount;
             panelResult.isValid = result.analysisSuccessful;

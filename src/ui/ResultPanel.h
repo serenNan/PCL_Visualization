@@ -23,16 +23,15 @@ namespace ui {
  * @brief 坑洞测量结果
  */
 struct PotholeResult {
-    double volume;         ///< 体积 (mm³)  
+    double volume;         ///< 体积 (mm³)
     double area;           ///< 面积 (mm²)
-    double width;          ///< 宽度 (mm)
-    double length;         ///< 长度 (mm)
+    double diameter;       ///< 直径/尺寸 (mm)
     double maxDepth;       ///< 最大深度 (mm)
     int pointCount;        ///< 点云数量
     bool isValid;          ///< 结果是否有效
 
-    PotholeResult() 
-        : volume(0.0), area(0.0), width(0.0), length(0.0)
+    PotholeResult()
+        : volume(0.0), area(0.0), diameter(0.0)
         , maxDepth(0.0), pointCount(0), isValid(false) {}
 };
 
@@ -226,8 +225,7 @@ private:
     QGroupBox* m_measurementGroup;               ///< 测量结果组
     QLineEdit* m_volumeEdit;                     ///< 体积显示
     QLineEdit* m_areaEdit;                       ///< 面积显示
-    QLineEdit* m_widthEdit;                      ///< 宽度显示
-    QLineEdit* m_lengthEdit;                     ///< 长度显示
+    QLineEdit* m_diameterEdit;                   ///< 直径/尺寸显示
     QLineEdit* m_maxDepthEdit;                   ///< 最大深度显示
 
     // 点云信息显示

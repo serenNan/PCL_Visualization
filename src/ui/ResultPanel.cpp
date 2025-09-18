@@ -23,8 +23,7 @@ ResultPanel::ResultPanel(QWidget *parent)
     , m_measurementGroup(nullptr)
     , m_volumeEdit(nullptr)
     , m_areaEdit(nullptr)
-    , m_widthEdit(nullptr)
-    , m_lengthEdit(nullptr)
+    , m_diameterEdit(nullptr)
     , m_maxDepthEdit(nullptr)
     , m_pointCloudGroup(nullptr)
     , m_fileNameLabel(nullptr)
@@ -75,8 +74,7 @@ void ResultPanel::updateResults(const PotholeResult& result) {
     // 更新所有结果显示 - 全部使用5位小数
     updateResultDisplay(m_volumeEdit, result.volume, "mm³", 5);
     updateResultDisplay(m_areaEdit, result.area, "mm²", 5);
-    updateResultDisplay(m_widthEdit, result.width, "mm", 5);
-    updateResultDisplay(m_lengthEdit, result.length, "mm", 5);
+    updateResultDisplay(m_diameterEdit, result.diameter, "mm", 5);
     updateResultDisplay(m_maxDepthEdit, result.maxDepth, "mm", 5);
     
     // 更新有效性
@@ -90,8 +88,7 @@ void ResultPanel::clearResults() {
     // 清空所有显示
     m_volumeEdit->clear();
     m_areaEdit->clear();
-    m_widthEdit->clear();
-    m_lengthEdit->clear();
+    m_diameterEdit->clear();
     m_maxDepthEdit->clear();
     
     // 重置结果对象
@@ -230,16 +227,14 @@ void ResultPanel::onCopyToClipboard() {
         "最大深度: %3 mm\n"
         "体积: %4 mm³\n"
         "面积: %5 mm²\n"
-        "宽度: %6 mm\n"
-        "长度: %7 mm\n"
-        "点云数量: %8"
+        "尺寸: %6 mm\n"
+        "点云数量: %7"
     ).arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"))
      .arg(m_currentPointCloud ? QString::fromStdString(m_currentPointCloud->getFilename()) : "无")
      .arg(m_currentResult.maxDepth, 0, 'f', 5)
      .arg(m_currentResult.volume, 0, 'f', 5)
      .arg(m_currentResult.area, 0, 'f', 5)
-     .arg(m_currentResult.width, 0, 'f', 5)
-     .arg(m_currentResult.length, 0, 'f', 5)
+     .arg(m_currentResult.diameter, 0, 'f', 5)
      .arg(m_currentResult.pointCount);
     
     // 复制到剪贴板
@@ -307,8 +302,7 @@ QGroupBox* ResultPanel::createMeasurementGroup() {
     createResultItem(layout, 0, "最大深度:", m_maxDepthEdit, "mm");
     createResultItem(layout, 1, "体积:", m_volumeEdit, "mm³");
     createResultItem(layout, 2, "面积:", m_areaEdit, "mm²");
-    createResultItem(layout, 3, "宽度:", m_widthEdit, "mm");
-    createResultItem(layout, 4, "长度:", m_lengthEdit, "mm");
+    createResultItem(layout, 3, "尺寸:", m_diameterEdit, "mm");
     
     return group;
 }
@@ -537,8 +531,7 @@ bool ResultPanel::exportAsJson(const QString& filename) {
     measurements["maxDepth_mm"] = m_currentResult.maxDepth;
     measurements["volume_mm3"] = m_currentResult.volume;
     measurements["area_mm2"] = m_currentResult.area;
-    measurements["width_mm"] = m_currentResult.width;
-    measurements["length_mm"] = m_currentResult.length;
+    measurements["diameter_mm"] = m_currentResult.diameter;
     measurements["isValid"] = m_currentResult.isValid;
     json["measurements"] = measurements;
     
@@ -571,8 +564,7 @@ bool ResultPanel::exportAsCsv(const QString& filename) {
     stream << "Max Depth," << QString::number(m_currentResult.maxDepth, 'f', 5) << ",mm\n";
     stream << "Volume," << QString::number(m_currentResult.volume, 'f', 5) << ",mm³\n";
     stream << "Area," << QString::number(m_currentResult.area, 'f', 5) << ",mm²\n";
-    stream << "Width," << QString::number(m_currentResult.width, 'f', 5) << ",mm\n";
-    stream << "Length," << QString::number(m_currentResult.length, 'f', 5) << ",mm\n";
+    stream << "Diameter," << QString::number(m_currentResult.diameter, 'f', 5) << ",mm\n";
     stream << "Valid," << (m_currentResult.isValid ? "true" : "false") << ",\n";
     
     return true;
@@ -597,8 +589,7 @@ bool ResultPanel::exportAsText(const QString& filename) {
     stream << "最大深度: " << QString::number(m_currentResult.maxDepth, 'f', 5) << " mm\n";
     stream << "体积: " << QString::number(m_currentResult.volume, 'f', 5) << " mm³\n";
     stream << "面积: " << QString::number(m_currentResult.area, 'f', 5) << " mm²\n";
-    stream << "宽度: " << QString::number(m_currentResult.width, 'f', 5) << " mm\n";
-    stream << "长度: " << QString::number(m_currentResult.length, 'f', 5) << " mm\n";
+    stream << "尺寸: " << QString::number(m_currentResult.diameter, 'f', 5) << " mm\n";
     stream << "结果有效性: " << (m_currentResult.isValid ? "有效" : "无效") << "\n\n";
     
     if (m_currentPointCloud) {

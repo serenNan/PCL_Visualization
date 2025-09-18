@@ -454,9 +454,11 @@ PotholeInfo PotholeDetector::calculatePotholeGeometry(PCLPointCloud::Ptr cloud,
     pothole.center.y = (pothole.minPoint.y + pothole.maxPoint.y) / 2.0f;
     pothole.center.z = (pothole.minPoint.z + pothole.maxPoint.z) / 2.0f;
     
-    // 计算尺寸
-    pothole.width = pothole.maxPoint.x - pothole.minPoint.x;
-    pothole.length = pothole.maxPoint.y - pothole.minPoint.y;
+    // 计算等效直径
+    double width = pothole.maxPoint.x - pothole.minPoint.x;
+    double length = pothole.maxPoint.y - pothole.minPoint.y;
+    double area = width * length;
+    pothole.diameter = 2.0 * std::sqrt(area / M_PI);
     
     // * 计算最大深度信息（去掉平均深度）
     double minZ = std::numeric_limits<double>::max();
@@ -837,7 +839,10 @@ PotholeInfo PotholeDetector::calculatePotholeGeometry(PCLPointCloud::Ptr cloud,
 
         double finalArea = dilatedArea;
 
-        double slenderExtent = std::min(pothole.width, pothole.length);
+        // 从等效直径计算细长度检查
+        double width = pothole.maxPoint.x - pothole.minPoint.x;
+        double length = pothole.maxPoint.y - pothole.minPoint.y;
+        double slenderExtent = std::min(width, length);
         if (slenderExtent > 0.0 && slenderExtent <= params_.slenderWidthThreshold &&
             finalArea < params_.minSlenderArea) {
             double radius = dilationRadius;
@@ -971,11 +976,16 @@ double PotholeDetector::calculateConfidence(const PotholeInfo& pothole, size_t t
     // 基于深度的置信度（使用毫米单位的最大深度）
     double depthConfidence = std::min(1.0, pothole.maxDepth / 10.0); // 深度/10mm，10mm深度对应1.0置信度
     
-    // 基于几何形状的置信度
-    double aspectRatio = pothole.getAspectRatio();
+    // 基于几何形状的置信度（使用直径合理性评估）
     double shapeConfidence = 1.0;
-    if (aspectRatio > 3.0 || aspectRatio < 0.3) {
-        shapeConfidence = 0.7; // 过于细长或过于扁平的形状置信度降低
+    if (pothole.diameter <= 0.0) {
+        shapeConfidence = 0.5; // 直径无效时置信度降低
+    } else {
+        // 检查直径相对于点云分布的合理性
+        double areaFromDiameter = M_PI * (pothole.diameter / 2.0) * (pothole.diameter / 2.0);
+        if (pothole.area > 0 && (areaFromDiameter / pothole.area > 2.0 || pothole.area / areaFromDiameter > 2.0)) {
+            shapeConfidence = 0.8; // 计算的直径与实际面积差异较大
+        }
     }
     
     // 综合置信度

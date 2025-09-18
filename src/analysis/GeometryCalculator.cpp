@@ -28,10 +28,9 @@ GeometryCalculationResult GeometryCalculator::calculateGeometry(PCLPointCloud::P
             return result;
         }
         
-        // 1. 计算边界框尺寸
-        auto [width, length, height] = calculateBoundingBoxSize(potholePoints);
-        result.width = width;
-        result.length = length; 
+        // 1. 计算等效直径和高度
+        auto [diameter, height] = calculateEquivalentDiameter(potholePoints);
+        result.diameter = diameter;
         result.height = height;
         
         // 2. 计算深度统计
@@ -58,8 +57,8 @@ GeometryCalculationResult GeometryCalculator::calculateGeometry(PCLPointCloud::P
         result.approximateVolume = calculateSimpleAverageVolume(potholePoints, surfaceHeight);
         
         // 5. 计算几何形状特征
-        auto [aspectRatio, compactness, roundness, elongation] = calculateShapeFeatures(potholePoints);
-        result.aspectRatio = aspectRatio;
+        auto [circularity, compactness, roundness, elongation] = calculateShapeFeatures(potholePoints);
+        result.circularity = circularity;
         result.compactness = compactness;
         result.roundness = roundness;
         result.elongation = elongation;
@@ -88,8 +87,8 @@ double GeometryCalculator::calculateProjectionArea(PCLPointCloud::Ptr points, Ar
             return calculateTriangulationArea(points);
         case AreaCalculationMethod::BOUNDING_BOX:
         default: {
-            auto [width, length, height] = calculateBoundingBoxSize(points);
-            return width * length;
+            auto [diameter, height] = calculateEquivalentDiameter(points);
+            return M_PI * (diameter / 2.0) * (diameter / 2.0);  // 圆形面积
         }
     }
 }
@@ -147,39 +146,51 @@ std::tuple<double, double, double, double> GeometryCalculator::calculateDepthSta
     return {avgDepth, maxDepth, minDepth, variance};
 }
 
-std::tuple<double, double, double> GeometryCalculator::calculateBoundingBoxSize(PCLPointCloud::Ptr points) {
+std::tuple<double, double> GeometryCalculator::calculateEquivalentDiameter(PCLPointCloud::Ptr points) {
     if (points->empty()) {
-        return {0.0, 0.0, 0.0};
+        return {0.0, 0.0};
     }
-    
+
     PointT minPt, maxPt;
     pcl::getMinMax3D(*points, minPt, maxPt);
-    
+
     double width = maxPt.x - minPt.x;
     double length = maxPt.y - minPt.y;
     double height = maxPt.z - minPt.z;
-    
-    return {width, length, height};
+
+    // 计算等效直径：将矩形区域转换为等面积圆的直径
+    double area = width * length;
+    double diameter = 2.0 * std::sqrt(area / M_PI);
+
+    return {diameter, height};
 }
 
 std::tuple<double, double, double, double> GeometryCalculator::calculateShapeFeatures(PCLPointCloud::Ptr points) {
-    auto [width, length, height] = calculateBoundingBoxSize(points);
-    
-    // 长宽比
-    double aspectRatio = (width > 0) ? (length / width) : 0.0;
-    
+    auto [diameter, height] = calculateEquivalentDiameter(points);
+
+    // 计算实际面积
+    double actualArea = calculateConvexHull2DArea(points);
+    double circleArea = M_PI * (diameter / 2.0) * (diameter / 2.0);
+
+    // 圆形度：实际面积与等效圆面积的比值
+    double circularity = (circleArea > 0) ? (actualArea / circleArea) : 0.0;
+
     // 紧凑度
     double compactness = calculateCompactness(points);
-    
+
     // 圆形度
     double roundness = calculateRoundness(points);
-    
-    // 伸长度 (1 - 短轴/长轴)
+
+    // 伸长度（基于边界框的长短轴比）
+    PointT minPt, maxPt;
+    pcl::getMinMax3D(*points, minPt, maxPt);
+    double width = maxPt.x - minPt.x;
+    double length = maxPt.y - minPt.y;
     double majorAxis = std::max(width, length);
     double minorAxis = std::min(width, length);
     double elongation = (majorAxis > 0) ? (1.0 - minorAxis / majorAxis) : 0.0;
-    
-    return {aspectRatio, compactness, roundness, elongation};
+
+    return {circularity, compactness, roundness, elongation};
 }
 
 double GeometryCalculator::estimateSurfaceHeight(PCLPointCloud::Ptr allPoints, const std::string& method, double percentile) {
@@ -231,10 +242,10 @@ double GeometryCalculator::calculateConcaveHull2DArea(PCLPointCloud::Ptr points)
 }
 
 double GeometryCalculator::calculateTriangulationArea(PCLPointCloud::Ptr points) {
-    // * 使用边界框面积作为简化实现
+    // * 使用等效圆面积作为简化实现
     // TODO: 实现完整的三角网格面积计算
-    auto [width, length, height] = calculateBoundingBoxSize(points);
-    return width * length;
+    auto [diameter, height] = calculateEquivalentDiameter(points);
+    return M_PI * (diameter / 2.0) * (diameter / 2.0);
 }
 
 double GeometryCalculator::calculateConvexHullVolume(PCLPointCloud::Ptr points, double surfaceHeight) {
@@ -365,8 +376,8 @@ bool GeometryCalculator::validateCalculationResult(GeometryCalculationResult& re
         return false;
     }
     
-    if (result.width <= 0 || result.length <= 0) {
-        result.errorMessage += "尺寸计算无效; ";
+    if (result.diameter <= 0) {
+        result.errorMessage += "直径计算无效; ";
         return false;
     }
     
@@ -393,8 +404,8 @@ double GeometryCalculator::assessCalculationConfidence(const GeometryCalculation
     }
     
     // 基于形状特征的置信度
-    if (result.aspectRatio > 5.0 || result.aspectRatio < 0.2) {
-        confidence *= 0.8;  // 形状过于细长或扁平
+    if (result.circularity < 0.5 || result.circularity > 1.5) {
+        confidence *= 0.8;  // 形状与圆形差异较大
     }
     
     return std::max(0.1, std::min(1.0, confidence));

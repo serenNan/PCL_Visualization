@@ -22,8 +22,7 @@ struct PotholeInfo {
     double maxDepth = 0.0;       ///< 最大深度 (m) 
     double volume = 0.0;         ///< 体积 (m³)
     double area = 0.0;           ///< 投影面积 (m²)
-    double width = 0.0;          ///< 宽度 (m)
-    double length = 0.0;         ///< 长度 (m)
+    double diameter = 0.0;       ///< 直径 (m)
     
     // 位置信息
     PointT center;               ///< 凹坑中心点
@@ -52,11 +51,11 @@ struct PotholeInfo {
     }
     
     /**
-     * @brief 获取凹坑的长宽比
-     * @return 长宽比
+     * @brief 获取凹坑的等效半径
+     * @return 等效半径 (m)
      */
-    double getAspectRatio() const { 
-        return (width > 0) ? (length / width) : 0.0; 
+    double getEquivalentRadius() const {
+        return diameter / 2.0;
     }
     
     /**

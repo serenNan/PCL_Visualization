@@ -41,8 +41,7 @@ int main(int argc, char** argv) {
         const auto& p = result.potholes.front();
         std::cout << "first.area: " << p.area << "\n";
         std::cout << "first.volume: " << p.volume << "\n";
-        std::cout << "first.width: " << p.width << "\n";
-        std::cout << "first.length: " << p.length << "\n";
+        std::cout << "first.diameter: " << p.diameter << "\n";
         std::cout << "first.max_depth: " << p.maxDepth << "\n";
         std::cout << "first.points: " << p.pointCount << "\n";
     }

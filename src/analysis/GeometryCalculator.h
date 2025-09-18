@@ -74,12 +74,11 @@ struct GeometryCalculationResult {
     double depthVariance = 0.0;         ///< 深度方差
     
     // 尺寸信息
-    double width = 0.0;                 ///< 宽度 (m)
-    double length = 0.0;                ///< 长度 (m)
+    double diameter = 0.0;              ///< 直径 (m)
     double height = 0.0;                ///< 高度 (m)
     
     // 几何特征
-    double aspectRatio = 0.0;           ///< 长宽比
+    double circularity = 0.0;           ///< 圆形度
     double compactness = 0.0;           ///< 紧凑度 (4π*Area/Perimeter²)
     double roundness = 0.0;             ///< 圆形度
     double elongation = 0.0;            ///< 伸长度
@@ -159,11 +158,11 @@ public:
     std::tuple<double, double, double, double> calculateDepthStatistics(PCLPointCloud::Ptr points, double surfaceHeight);
     
     /**
-     * @brief 计算边界框尺寸
-     * @param points 点云  
-     * @return {宽度, 长度, 高度}
+     * @brief 计算等效直径和高度
+     * @param points 点云
+     * @return {直径, 高度}
      */
-    std::tuple<double, double, double> calculateBoundingBoxSize(PCLPointCloud::Ptr points);
+    std::tuple<double, double> calculateEquivalentDiameter(PCLPointCloud::Ptr points);
     
     /**
      * @brief 计算几何形状特征
