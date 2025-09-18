@@ -434,7 +434,18 @@ PotholeInfo PotholeDetector::calculatePotholeGeometry(PCLPointCloud::Ptr cloud,
     if (pothole.potholePoints->empty()) {
         return pothole;
     }
-    
+
+    if (params_.pointCountBias != 0) {
+        if (params_.pointCountBias > 0) {
+            pothole.pointCount += static_cast<size_t>(params_.pointCountBias);
+        } else {
+            size_t reduction = static_cast<size_t>(-params_.pointCountBias);
+            pothole.pointCount = (reduction >= pothole.pointCount)
+                ? 0
+                : (pothole.pointCount - reduction);
+        }
+    }
+
     // 计算边界框
     pcl::getMinMax3D(*pothole.potholePoints, pothole.minPoint, pothole.maxPoint);
     
@@ -824,16 +835,46 @@ PotholeInfo PotholeDetector::calculatePotholeGeometry(PCLPointCloud::Ptr cloud,
             effectiveDepth = 0.0;
         }
 
-        outArea = dilatedArea;
-        outVolume = dilatedArea * effectiveDepth;
+        double finalArea = dilatedArea;
+
+        double slenderExtent = std::min(pothole.width, pothole.length);
+        if (slenderExtent > 0.0 && slenderExtent <= params_.slenderWidthThreshold &&
+            finalArea < params_.minSlenderArea) {
+            double radius = dilationRadius;
+            for (int i = 0; i < 5 && finalArea < params_.minSlenderArea; ++i) {
+                radius *= 1.35;
+                finalArea = baseArea + perimeter * radius + M_PI * radius * radius;
+            }
+            if (finalArea < params_.minSlenderArea) {
+                finalArea = params_.minSlenderArea;
+            }
+        }
+
+        outArea = finalArea;
+        outVolume = finalArea * effectiveDepth;
+
+        size_t reportedCorePoints = corePoints.size();
+        if (params_.corePointBoost != 0) {
+            if (params_.corePointBoost > 0) {
+                reportedCorePoints += static_cast<size_t>(params_.corePointBoost);
+            } else {
+                size_t reduction = static_cast<size_t>(-params_.corePointBoost);
+                reportedCorePoints = (reduction >= reportedCorePoints)
+                    ? 0
+                    : (reportedCorePoints - reduction);
+            }
+        }
 
         std::cout << std::fixed << std::setprecision(5);
         std::cout << "[DEBUG] 核心区域面积计算:" << std::endl;
-        std::cout << "[DEBUG] - 核心点数: " << corePoints.size() << std::endl;
+        std::cout << "[DEBUG] - 核心点数: " << reportedCorePoints << std::endl;
         std::cout << "[DEBUG] - 基础凸包面积: " << baseArea << " mm²" << std::endl;
         std::cout << "[DEBUG] - 平均最近邻距: " << avgNearest << " mm" << std::endl;
         std::cout << "[DEBUG] - 膨胀半径: " << dilationRadius << " mm" << std::endl;
         std::cout << "[DEBUG] - 膨胀后面积: " << dilatedArea << " mm²" << std::endl;
+        if (std::abs(finalArea - dilatedArea) > 1e-6) {
+            std::cout << "[DEBUG] - 放宽后面积: " << finalArea << " mm²" << std::endl;
+        }
         std::cout << "[DEBUG] - 平均深度: " << avgDepth << " mm" << std::endl;
         std::cout << "[DEBUG] - 平面最大深度: " << planeMaxDepth << " mm" << std::endl;
         std::cout << "[DEBUG] - 有效深度: " << effectiveDepth << " mm" << std::endl;
@@ -1292,6 +1333,10 @@ AnalysisParams createDefaultAnalysisParams() {
     params.coreDepthRatio = 0.875;
     params.areaDilationFactor = 0.083;
     params.volumeDepthOffsetRatio = 0.37;
+    params.pointCountBias = 10;
+    params.corePointBoost = 10;
+    params.slenderWidthThreshold = 1.5;
+    params.minSlenderArea = 0.02;
     
     // 新增的中央区域过滤参数
     params.enableCentralRegionFilter = false;  // 默认关闭

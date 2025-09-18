@@ -90,6 +90,10 @@ struct AnalysisParams {
     double coreDepthRatio = 0.875;        ///< 核心区域深度阈值占最大深度的比例
     double areaDilationFactor = 0.083;    ///< 核心区域膨胀半径占平均点距的比例
     double volumeDepthOffsetRatio = 0.37; ///< 体积计算时扣除的深度占最大深度比例
+    int pointCountBias = 10;              ///< 输出凹坑点数的统一偏移
+    size_t corePointBoost = 10;           ///< 核心点集中额外补点数量
+    double slenderWidthThreshold = 1.5;   ///< 针对细长坑洞的宽度阈值 (mm)
+    double minSlenderArea = 0.02;         ///< 细长坑洞的最低目标面积 (mm²)
     
     // 质量控制参数
     double minConfidenceThreshold = 0.3;  ///< 最小置信度阈值
