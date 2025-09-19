@@ -35,12 +35,12 @@ ResultPanel::ResultPanel(QWidget *parent)
     , m_timestampLabel(nullptr)
     , m_exportButton(nullptr)
     , m_copyButton(nullptr)
-    , m_refreshButton(nullptr)
     , m_resetButton(nullptr)
     , m_currentPointCloud(nullptr)
     , m_timeUpdateTimer(nullptr)
     , m_analyzing(false)
     , m_resultsValid(false)
+    , m_lastAnalysisTime("")
 {
     setObjectName("ResultPanel");
     setMinimumWidth(320);
@@ -52,10 +52,8 @@ ResultPanel::ResultPanel(QWidget *parent)
     // 设置样式
     setupStyles();
     
-    // 启动时间更新定时器
-    m_timeUpdateTimer = new QTimer(this);
-    connect(m_timeUpdateTimer, &QTimer::timeout, this, &ResultPanel::updateTimeDisplay);
-    m_timeUpdateTimer->start(1000); // 每秒更新一次
+    // 不再使用定时器自动更新时间
+    m_timeUpdateTimer = nullptr;
     
     // 初始状态
     clearResults();
@@ -76,12 +74,36 @@ void ResultPanel::updateResults(const PotholeResult& result) {
     updateResultDisplay(m_areaEdit, result.area, "mm²", 5);
     updateResultDisplay(m_diameterEdit, result.diameter, "mm", 5);
     updateResultDisplay(m_maxDepthEdit, result.maxDepth, "mm", 5);
-    
+
     // 更新有效性
     setResultsValid(result.isValid);
-    
-    // 更新时间戳
+
+    // 计算分析耗时并更新显示
+    if (m_analysisStartTime.isValid()) {
+        QDateTime endTime = QDateTime::currentDateTime();
+        qint64 elapsedMs = m_analysisStartTime.msecsTo(endTime);
+
+        if (elapsedMs < 1000) {
+            m_lastAnalysisTime = QString("%1ms").arg(elapsedMs);
+        } else if (elapsedMs < 60000) {
+            double seconds = elapsedMs / 1000.0;
+            m_lastAnalysisTime = QString("%1s").arg(seconds, 0, 'f', 1);
+        } else {
+            int minutes = elapsedMs / 60000;
+            int seconds = (elapsedMs % 60000) / 1000;
+            m_lastAnalysisTime = QString("%1m%2s").arg(minutes).arg(seconds);
+        }
+    } else {
+        m_lastAnalysisTime = "未知";
+    }
     updateTimeDisplay();
+
+    // 更新分析状态
+    if (result.isValid) {
+        m_analysisStatusLabel->setText("分析完成");
+    } else {
+        m_analysisStatusLabel->setText("分析完成 (无有效结果)");
+    }
 }
 
 void ResultPanel::clearResults() {
@@ -90,16 +112,20 @@ void ResultPanel::clearResults() {
     m_areaEdit->clear();
     m_diameterEdit->clear();
     m_maxDepthEdit->clear();
-    
+
     // 重置结果对象
     m_currentResult = PotholeResult();
-    
+
     // 设置为无效状态
     setResultsValid(false);
-    
+
     // 更新状态
     m_analysisStatusLabel->setText("未进行分析");
     m_analysisProgressBar->setValue(0);
+
+    // 清空分析时间
+    m_lastAnalysisTime.clear();
+    updateTimeDisplay();
 }
 
 void ResultPanel::setPointCloudInfo(std::shared_ptr<core::PointCloud> pointCloud) {
@@ -108,7 +134,7 @@ void ResultPanel::setPointCloudInfo(std::shared_ptr<core::PointCloud> pointCloud
     if (!pointCloud) {
         m_fileNameLabel->setText("文件名: 未加载");
         m_pointCountLabel->setText("点数量: 0");
-        m_boundsLabel->setText("边界: 无");
+        // 移除边界信息显示
         return;
     }
     
@@ -120,33 +146,30 @@ void ResultPanel::setPointCloudInfo(std::shared_ptr<core::PointCloud> pointCloud
     // 更新点数量
     m_pointCountLabel->setText(QString("点数量: %1").arg(pointCloud->size()));
     
-    // 更新边界信息
-    auto bounds = pointCloud->getBounds();
-    QString boundsText = QString("X: [%.5f, %.5f]\nY: [%.5f, %.5f]\nZ: [%.5f, %.5f]")
-        .arg(bounds.minPoint.x).arg(bounds.maxPoint.x)
-        .arg(bounds.minPoint.y).arg(bounds.maxPoint.y)
-        .arg(bounds.minPoint.z).arg(bounds.maxPoint.z);
-    m_boundsLabel->setText(boundsText);
+    // 移除边界信息显示 - 根据需求不显示XYZ坐标
 }
 
 void ResultPanel::setAnalysisStatus(bool analyzing, int progress) {
     m_analyzing = analyzing;
-    
+
     if (analyzing) {
+        // 记录分析开始时间
+        if (progress == 0) {  // 只在开始时记录
+            m_analysisStartTime = QDateTime::currentDateTime();
+        }
+
         m_analysisStatusLabel->setText("正在分析中...");
         m_analysisProgressBar->setValue(progress);
         m_analysisProgressBar->setVisible(true);
-        
+
         // 禁用操作按钮
         m_exportButton->setEnabled(false);
-        m_refreshButton->setEnabled(false);
     } else {
         m_analysisStatusLabel->setText("分析完成");
         m_analysisProgressBar->setVisible(false);
-        
+
         // 启用操作按钮
         m_exportButton->setEnabled(m_resultsValid);
-        m_refreshButton->setEnabled(true);
     }
 }
 
@@ -221,7 +244,7 @@ void ResultPanel::onCopyToClipboard() {
     // 构建文本内容
     QString content = QString(
         "PCL 坑洞检测分析结果\n"
-        "生成时间: %1\n"
+        "计算耗时: %1\n"
         "文件名: %2\n\n"
         "测量结果:\n"
         "最大深度: %3 mm\n"
@@ -229,7 +252,7 @@ void ResultPanel::onCopyToClipboard() {
         "面积: %5 mm²\n"
         "尺寸: %6 mm\n"
         "点云数量: %7"
-    ).arg(QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss"))
+    ).arg(m_lastAnalysisTime.isEmpty() ? "未知" : m_lastAnalysisTime)
      .arg(m_currentPointCloud ? QString::fromStdString(m_currentPointCloud->getFilename()) : "无")
      .arg(m_currentResult.maxDepth, 0, 'f', 5)
      .arg(m_currentResult.volume, 0, 'f', 5)
@@ -244,12 +267,6 @@ void ResultPanel::onCopyToClipboard() {
     QMessageBox::information(this, "复制成功", "结果已复制到剪贴板");
 }
 
-void ResultPanel::onRefreshDisplay() {
-    if (m_currentPointCloud) {
-        setPointCloudInfo(m_currentPointCloud);
-    }
-    updateTimeDisplay();
-}
 
 void ResultPanel::onResetResults() {
     int result = QMessageBox::question(this, "确认重置",
@@ -263,8 +280,12 @@ void ResultPanel::onResetResults() {
 }
 
 void ResultPanel::updateTimeDisplay() {
-    QString currentTime = QDateTime::currentDateTime().toString("hh:mm:ss");
-    m_timestampLabel->setText(QString("更新时间: %1").arg(currentTime));
+    // 现在显示分析耗时，而不是当前时间
+    if (!m_lastAnalysisTime.isEmpty()) {
+        m_timestampLabel->setText(QString("计算耗时: %1").arg(m_lastAnalysisTime));
+    } else {
+        m_timestampLabel->setText("计算耗时: --");
+    }
 }
 
 void ResultPanel::initializeUI() {
@@ -319,21 +340,19 @@ QGroupBox* ResultPanel::createPointCloudInfoGroup() {
     m_fileNameLabel->setWordWrap(true);
     
     m_pointCountLabel = new QLabel("点数量: 0");
-    
-    m_boundsLabel = new QLabel("边界: 无");
-    m_boundsLabel->setWordWrap(true);
-    m_boundsLabel->setAlignment(Qt::AlignTop);
-    
+
+    // 不再创建和显示边界标签
+    m_boundsLabel = nullptr;  // 保持成员变量但不创建控件
+
     // 设置字体
     QFont infoFont;
     infoFont.setPointSize(8);
     m_fileNameLabel->setFont(infoFont);
     m_pointCountLabel->setFont(infoFont);
-    m_boundsLabel->setFont(infoFont);
-    
+
     layout->addWidget(m_fileNameLabel);
     layout->addWidget(m_pointCountLabel);
-    layout->addWidget(m_boundsLabel);
+    // 不添加边界标签到布局
     
     return group;
 }
@@ -353,7 +372,7 @@ QGroupBox* ResultPanel::createAnalysisStatusGroup() {
     m_analysisProgressBar->setMinimum(0);
     m_analysisProgressBar->setMaximum(100);
     
-    m_timestampLabel = new QLabel("更新时间: --:--:--");
+    m_timestampLabel = new QLabel("计算耗时: --");
     
     // 设置字体
     QFont statusFont;
@@ -375,11 +394,10 @@ QHBoxLayout* ResultPanel::createActionButtons() {
     // 创建按钮
     m_exportButton = new QPushButton("导出");
     m_copyButton = new QPushButton("复制");
-    m_refreshButton = new QPushButton("刷新");
     m_resetButton = new QPushButton("重置");
-    
+
     // 设置按钮样式
-    QString buttonStyle = 
+    QString buttonStyle =
         "QPushButton {"
         "    min-height: 24px;"
         "    padding: 2px 8px;"
@@ -388,31 +406,27 @@ QHBoxLayout* ResultPanel::createActionButtons() {
         "QPushButton:disabled {"
         "    color: #888888;"
         "}";
-    
+
     m_exportButton->setStyleSheet(buttonStyle);
     m_copyButton->setStyleSheet(buttonStyle);
-    m_refreshButton->setStyleSheet(buttonStyle);
     m_resetButton->setStyleSheet(buttonStyle);
-    
+
     // 设置工具提示
     m_exportButton->setToolTip("导出分析结果到文件");
     m_copyButton->setToolTip("复制结果到剪贴板");
-    m_refreshButton->setToolTip("刷新显示");
     m_resetButton->setToolTip("重置所有结果");
-    
+
     // 连接信号
     connect(m_exportButton, &QPushButton::clicked, this, &ResultPanel::onExportResults);
     connect(m_copyButton, &QPushButton::clicked, this, &ResultPanel::onCopyToClipboard);
-    connect(m_refreshButton, &QPushButton::clicked, this, &ResultPanel::onRefreshDisplay);
     connect(m_resetButton, &QPushButton::clicked, this, &ResultPanel::onResetResults);
-    
+
     // 初始状态
     m_exportButton->setEnabled(false);
     m_copyButton->setEnabled(false);
-    
+
     layout->addWidget(m_exportButton);
     layout->addWidget(m_copyButton);
-    layout->addWidget(m_refreshButton);
     layout->addWidget(m_resetButton);
     
     return layout;
@@ -522,7 +536,7 @@ bool ResultPanel::exportAsJson(const QString& filename) {
     QJsonObject json;
     
     // 基本信息
-    json["timestamp"] = QDateTime::currentDateTime().toString(Qt::ISODate);
+    json["elapsedTime"] = m_lastAnalysisTime.isEmpty() ? "Unknown" : m_lastAnalysisTime;
     json["filename"] = m_currentPointCloud ? QString::fromStdString(m_currentPointCloud->getFilename()) : "";
     json["pointCount"] = m_currentPointCloud ? static_cast<int>(m_currentPointCloud->size()) : 0;
     
@@ -558,7 +572,7 @@ bool ResultPanel::exportAsCsv(const QString& filename) {
     stream << "Parameter,Value,Unit\n";
     
     // 写入数据
-    stream << "Timestamp," << QDateTime::currentDateTime().toString(Qt::ISODate) << ",\n";
+    stream << "ElapsedTime," << (m_lastAnalysisTime.isEmpty() ? "Unknown" : m_lastAnalysisTime) << ",\n";
     stream << "Filename," << (m_currentPointCloud ? QString::fromStdString(m_currentPointCloud->getFilename()) : "") << ",\n";
     stream << "Point Count," << (m_currentPointCloud ? m_currentPointCloud->size() : 0) << ",\n";
     stream << "Max Depth," << QString::number(m_currentResult.maxDepth, 'f', 5) << ",mm\n";
@@ -580,7 +594,7 @@ bool ResultPanel::exportAsText(const QString& filename) {
     
     stream << "PCL 坑洞检测分析结果报告\n";
     stream << "================================\n\n";
-    stream << "生成时间: " << QDateTime::currentDateTime().toString("yyyy-MM-dd hh:mm:ss") << "\n";
+    stream << "计算耗时: " << (m_lastAnalysisTime.isEmpty() ? "未知" : m_lastAnalysisTime) << "\n";
     stream << "文件名: " << (m_currentPointCloud ? QString::fromStdString(m_currentPointCloud->getFilename()) : "无") << "\n";
     stream << "点云数量: " << (m_currentPointCloud ? m_currentPointCloud->size() : 0) << "\n\n";
     

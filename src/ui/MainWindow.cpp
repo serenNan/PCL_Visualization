@@ -724,6 +724,11 @@ void MainWindow::onStartAnalysis() {
     m_progressBar->setVisible(true);
     m_progressBar->setValue(0);
     m_statusLabel->setText("开始凹坑检测分析...");
+
+    // 更新结果面板的分析状态
+    if (m_resultPanel) {
+        m_resultPanel->setAnalysisStatus(true, 0);
+    }
     
     // 异步启动分析
     m_analysisFuture = m_potholeDetector->analyzeAsync(m_currentPointCloud);
@@ -796,14 +801,22 @@ void MainWindow::onAnalysisResultUpdated(const analysis::AnalysisResult& result)
             panelResult.isValid = false;
         }
         m_resultPanel->updateResults(panelResult);
+
+        // 更新结果面板的分析状态为完成
+        m_resultPanel->setAnalysisStatus(false, 100);
     }
-    
+
     emit analysisCompleted(result);
 }
 
 void MainWindow::onAnalysisProgressUpdated(const QString& stage, int progress, const QString& message) {
     m_progressBar->setValue(progress);
     m_statusLabel->setText(QString("[%1] %2").arg(stage).arg(message));
+
+    // 同步更新结果面板的分析进度
+    if (m_resultPanel) {
+        m_resultPanel->setAnalysisStatus(true, progress);
+    }
 }
 
 void MainWindow::onAnalysisFinished(const analysis::AnalysisResult& result) {

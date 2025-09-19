@@ -13,6 +13,7 @@
 #include <QtWidgets/QProgressBar>
 #include <QtWidgets/QFrame>
 #include <QtCore/QTimer>
+#include <QtCore/QDateTime>
 
 #include "../core/PointCloud.h"
 
@@ -124,11 +125,6 @@ public slots:
      * @brief 复制结果到剪贴板
      */
     void onCopyToClipboard();
-
-    /**
-     * @brief 刷新显示
-     */
-    void onRefreshDisplay();
 
     /**
      * @brief 重置所有结果
@@ -243,7 +239,6 @@ private:
     // 操作按钮
     QPushButton* m_exportButton;                 ///< 导出按钮
     QPushButton* m_copyButton;                   ///< 复制按钮
-    QPushButton* m_refreshButton;                ///< 刷新按钮
     QPushButton* m_resetButton;                  ///< 重置按钮
 
     // 数据成员
@@ -255,6 +250,8 @@ private:
     bool m_analyzing;                            ///< 是否正在分析
     bool m_resultsValid;                         ///< 结果是否有效
     QString m_lastExportPath;                    ///< 上次导出路径
+    QString m_lastAnalysisTime;                  ///< 上次分析的时间
+    QDateTime m_analysisStartTime;               ///< 分析开始时间
 };
 
 } // namespace ui
